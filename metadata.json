@@ -1,0 +1,6 @@
+{
+  "name": "Vértice Studio Tools",
+  "description": "Paint Mixer, AI Figures prompt generation, and 3D Model Slicer for print separation.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
