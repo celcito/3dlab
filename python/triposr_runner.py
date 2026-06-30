@@ -22,10 +22,14 @@ def infer(
     progress_callback: Optional[callable] = None,
 ) -> dict:
     try:
-        from triposr.pipeline import TripoSRPipeline
+        from tsr.system import TSR
+
+        model = TSR.from_pretrained(
+            "stabilityai/TripoSR",
+        )
     except ImportError:
         raise RuntimeError(
-            "TripoSR not installed. Run: pip install triposr"
+            "TripoSR not installed. The 'tsr' module is missing — see python/Dockerfile for the install step (clone from GitHub)."
         )
 
     if progress_callback:

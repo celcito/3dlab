@@ -1,6 +1,5 @@
 #!/usr/bin/env bash
 set -euo pipefail
-
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR"
 
@@ -13,6 +12,9 @@ source venv/bin/activate
 
 echo "Installing dependencies..."
 pip install -q -r requirements.txt
+
+# Adiciona o TripoSR ao PYTHONPATH (equivalente ao ENV do Dockerfile)
+export PYTHONPATH="$HOME/TripoSR:${PYTHONPATH:-}"
 
 echo "Starting TripoSR API on port 8001..."
 exec uvicorn app:app --host 127.0.0.1 --port 8001 --reload --log-level info

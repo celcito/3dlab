@@ -4,12 +4,13 @@
  */
 
 import { BrowserRouter, Routes, Route, Link, useLocation } from "react-router-dom";
-import { Brush, Cuboid, BoxSelect, Calculator, Image as ImageIcon } from "lucide-react";
+import { Brush, Cuboid, BoxSelect, Calculator, Image as ImageIcon, Cookie } from "lucide-react";
 import PaintMixer from "./pages/PaintMixer";
 import AiFigures from "./pages/AiFigures";
 import Viewer3D from "./pages/Viewer3D";
 import PriceCalculator from "./pages/PriceCalculator";
 import ImageTo3D from "./pages/ImageTo3D";
+import CookieCutter from "./pages/CookieCutter";
 
 function NavItem({ to, icon: Icon, label }: { to: string; icon: any; label: string }) {
   const location = useLocation();
@@ -44,6 +45,7 @@ function Layout({ children }: { children: React.ReactNode }) {
           <NavItem to="/viewer" icon={BoxSelect} label="3D Viewer" />
           <NavItem to="/price-calculator" icon={Calculator} label="Price Calculator" />
           <NavItem to="/image-to-3d" icon={ImageIcon} label="Image to 3D" />
+          <NavItem to="/cookie-cutter" icon={Cookie} label="Cookie Cutter" />
         </div>
       </nav>
       
@@ -65,6 +67,7 @@ export default function App() {
           <Route path="/viewer" element={<Viewer3D />} />
           <Route path="/price-calculator" element={<PriceCalculator />} />
           <Route path="/image-to-3d" element={<ImageTo3D />} />
+          <Route path="/cookie-cutter" element={<CookieCutter />} />
         </Routes>
       </Layout>
     </BrowserRouter>

@@ -8,14 +8,8 @@ services:
       - jobs-data:/tmp/jobs
     environment:
       - PYTHONUNBUFFERED=1
+      - CUDA_VISIBLE_DEVICES=
     restart: unless-stopped
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              count: 1
-              capabilities: [gpu]
 
   app:
     build:
@@ -23,7 +17,7 @@ services:
       dockerfile: Dockerfile.app
     container_name: 3dlab-app
     ports:
-      - "3000:3000"
+      - "3001:3000"
     volumes:
       - jobs-data:/app/tmp/jobs
     environment:

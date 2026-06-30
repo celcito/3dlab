@@ -20,6 +20,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 from jobs import create_job, get_job, update_job, remove_old_jobs
 from triposr_runner import infer
 from convert import convert_glb_to_all
+from decimate import decimate_mesh_file
 
 JOBS_DIR = Path(__file__).parent.parent / "tmp" / "jobs"
 JOBS_DIR.mkdir(parents=True, exist_ok=True)
@@ -48,7 +49,7 @@ app.add_middleware(
 )
 
 
-def _run_inference(job_id: str, image_path: str, output_dir: str):
+def _run_inference(job_id: str, image_path: str, output_dir: str, mc_resolution: int = 256):
     try:
         def progress(percent: int, step: str):
             update_job(job_id, "processing", progress=percent, step=step)
@@ -59,7 +60,7 @@ def _run_inference(job_id: str, image_path: str, output_dir: str):
             image_path=image_path,
             output_dir=output_dir,
             foreground_ratio=0.85,
-            mc_resolution=256,
+            mc_resolution=mc_resolution,
             progress_callback=progress,
         )
 
@@ -86,7 +87,9 @@ def _run_inference(job_id: str, image_path: str, output_dir: str):
 
 
 @app.post("/generate")
-async def generate(image: UploadFile = File(...)):
+async def generate(image: UploadFile = File(...), mc_resolution: int = 256):
+    if mc_resolution not in (128, 256, 384, 512):
+        raise HTTPException(400, "mc_resolution must be 128, 256, 384, or 512")
     if not image.content_type or not image.content_type.startswith("image/"):
         raise HTTPException(400, "File must be an image (PNG, JPEG, WebP)")
 
@@ -99,7 +102,7 @@ async def generate(image: UploadFile = File(...)):
     image_path.write_bytes(contents)
 
     output_dir = job_dir
-    threading.Thread(target=_run_inference, args=(job_id, str(image_path), str(output_dir)), daemon=True).start()
+    threading.Thread(target=_run_inference, args=(job_id, str(image_path), str(output_dir), mc_resolution), daemon=True).start()
 
     return {"jobId": job_id}
 
@@ -182,6 +185,42 @@ async def job_file(job_id: str, fmt: str):
 @app.get("/health")
 async def health():
     return {"status": "ok"}
+
+
+@app.post("/decimate")
+async def decimate_endpoint(file: UploadFile = File(...), ratio: float = 0.5):
+    if ratio <= 0 or ratio > 1:
+        raise HTTPException(400, "Ratio must be between 0.01 and 1.0")
+    decimate_dir = JOBS_DIR / "decimate"
+    decimate_dir.mkdir(parents=True, exist_ok=True)
+
+    import uuid
+    from fastapi.responses import FileResponse
+
+    job_dir = decimate_dir / uuid.uuid4().hex[:8]
+    job_dir.mkdir(parents=True, exist_ok=True)
+
+    input_path = job_dir / f"input_{file.filename or 'mesh.stl'}"
+    contents = await file.read()
+    input_path.write_bytes(contents)
+
+    try:
+        result = decimate_mesh_file(str(input_path), str(job_dir), ratio)
+        return FileResponse(
+            result["path"],
+            filename="decimated.stl",
+            media_type="application/sla",
+            headers={
+                "X-Original-Faces": str(result["original"]),
+                "X-Target-Faces": str(result["target"]),
+            },
+        )
+    except Exception as e:
+        logger.exception(f"Decimate failed: {e}")
+        raise HTTPException(500, f"Decimation failed: {e}")
+    finally:
+        import shutil
+        shutil.rmtree(job_dir, ignore_errors=True)
 
 
 if __name__ == "__main__":
