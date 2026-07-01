@@ -4,26 +4,34 @@
  */
 
 import { BrowserRouter, Routes, Route, Link, useLocation } from "react-router-dom";
-import { Brush, Cuboid, BoxSelect } from "lucide-react";
+import { Brush, Cuboid, BoxSelect, Calculator } from "lucide-react";
 import PaintMixer from "./pages/PaintMixer";
 import AiFigures from "./pages/AiFigures";
 import Viewer3D from "./pages/Viewer3D";
+import PriceCalculator from "./pages/PriceCalculator";
 
-function NavItem({ to, icon: Icon, label }: { to: string; icon: any; label: string }) {
+function NavItem({ to, icon: Icon, label, description }: { to: string; icon: any; label: string; description: string }) {
   const location = useLocation();
   const isActive = location.pathname === to;
   
   return (
     <Link
       to={to}
-      title={label}
-      className={`w-12 h-12 flex items-center justify-center border-2 transition-colors ${
+      className={`w-full flex items-center gap-3.5 px-6 py-4 border-l-2 transition-all ${
         isActive 
-          ? "border-white text-white bg-white/10" 
-          : "border-transparent text-zinc-500 hover:border-zinc-700 hover:text-white"
+          ? "border-[#00E5FF] text-white bg-[#00E5FF]/5" 
+          : "border-transparent text-zinc-400 hover:text-white hover:bg-white/2"
       }`}
     >
-      <Icon className="w-5 h-5" />
+      <Icon className={`w-4 h-4 shrink-0 ${isActive ? "text-[#00E5FF]" : "text-zinc-500"}`} />
+      <div className="flex flex-col min-w-0">
+        <span className={`text-[11px] font-black uppercase tracking-wider ${isActive ? "text-white" : "text-zinc-300"}`}>
+          {label}
+        </span>
+        <span className="text-[9px] text-zinc-500 truncate font-sans uppercase tracking-tight font-bold">
+          {description}
+        </span>
+      </div>
     </Link>
   );
 }
@@ -31,15 +39,22 @@ function NavItem({ to, icon: Icon, label }: { to: string; icon: any; label: stri
 function Layout({ children }: { children: React.ReactNode }) {
   return (
     <div className="flex h-screen bg-[#080808] text-white font-sans overflow-hidden">
-      {/* NAVIGATION RAIL */}
-      <nav className="w-[80px] bg-[#111] border-r border-[#222] flex flex-col items-center py-8 gap-10 shrink-0">
-        <div className="text-2xl font-black tracking-tighter border-2 border-white w-12 h-12 flex items-center justify-center shrink-0">
-          V
+      {/* SIDEBAR NAVIGATION */}
+      <nav className="w-[240px] bg-[#0d0d0d] border-r border-zinc-900 flex flex-col py-8 gap-8 shrink-0">
+        <div className="px-6 flex items-center gap-3">
+          <div className="text-xl font-black tracking-tighter border-2 border-[#00E5FF] text-[#00E5FF] w-9 h-9 flex items-center justify-center shrink-0">
+            V
+          </div>
+          <div className="flex flex-col">
+            <span className="text-[12px] font-black tracking-widest uppercase text-white">Vértice Studio</span>
+            <span className="text-[8px] tracking-wider text-zinc-500 uppercase font-mono font-bold">Print Companion</span>
+          </div>
         </div>
-        <div className="flex flex-col gap-4">
-          <NavItem to="/" icon={Brush} label="Paint Mixer" />
-          <NavItem to="/ai-figures" icon={Cuboid} label="AI Figures" />
-          <NavItem to="/viewer" icon={BoxSelect} label="3D Viewer" />
+        <div className="flex flex-col w-full">
+          <NavItem to="/" icon={BoxSelect} label="Separar Partes 3D" description="3D Viewer & Slicer" />
+          <NavItem to="/paint-mixer" icon={Brush} label="Misturador de Tintas" description="Paint Color Mixer" />
+          <NavItem to="/ai-figures" icon={Cuboid} label="Gerador de Figuras" description="AI Character Figures" />
+          <NavItem to="/price-calculator" icon={Calculator} label="Calculadora de Preços" description="Price Calculator" />
         </div>
       </nav>
       
@@ -56,9 +71,10 @@ export default function App() {
     <BrowserRouter>
       <Layout>
         <Routes>
-          <Route path="/" element={<PaintMixer />} />
+          <Route path="/" element={<Viewer3D />} />
+          <Route path="/paint-mixer" element={<PaintMixer />} />
           <Route path="/ai-figures" element={<AiFigures />} />
-          <Route path="/viewer" element={<Viewer3D />} />
+          <Route path="/price-calculator" element={<PriceCalculator />} />
         </Routes>
       </Layout>
     </BrowserRouter>

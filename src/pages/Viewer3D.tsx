@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect, useMemo } from "react";
 import { Canvas, useThree, useFrame } from "@react-three/fiber";
-import { OrbitControls, Grid } from "@react-three/drei";
+import { OrbitControls, Grid, Text } from "@react-three/drei";
 import * as THREE from "three";
 import { Upload, Download, Paintbrush, PaintBucket, Move, RotateCcw, Eye, EyeOff, Trash2, Sliders, Play, Plus, Info, Check, RefreshCw, Sparkles, Layers, Undo, Eraser, Ruler, Clock, Printer, Settings, FileJson, Save } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -31,6 +31,30 @@ const PRESET_COLORS = [
   "#2979FF", // Blue
   "#FFFFFF", // White
 ];
+
+// Explanatory Tooltip Component for beginners
+function HelpTooltip({ text, position = "left" }: { text: string; position?: "top" | "bottom" | "left" | "right" }) {
+  const positionClasses = {
+    top: "bottom-full left-1/2 -translate-x-1/2 mb-2",
+    bottom: "top-full left-1/2 -translate-x-1/2 mt-2",
+    left: "right-full top-1/2 -translate-y-1/2 mr-2",
+    right: "left-full top-1/2 -translate-y-1/2 ml-2"
+  };
+
+  return (
+    <div className="relative group inline-flex items-center ml-1.5 select-none shrink-0 align-middle">
+      <span className="text-zinc-500 hover:text-[#00E5FF] transition-colors cursor-help focus:outline-none p-0.5">
+        <Info className="w-3.5 h-3.5" />
+      </span>
+      <div 
+        className={`absolute hidden group-hover:block z-50 w-64 p-3 text-[10px] leading-relaxed font-sans normal-case font-medium text-zinc-300 bg-zinc-950 border border-zinc-800 rounded shadow-[0_6px_20px_rgba(0,0,0,0.95)] pointer-events-none transition-all duration-150 ${positionClasses[position]}`}
+      >
+        <p className="tracking-wide uppercase text-[#00E5FF] font-black text-[9px] mb-1">Dica de Ajuda / Help Tip</p>
+        <p>{text}</p>
+      </div>
+    </div>
+  );
+}
 
 // Helper to build adjacency list for an indexed or non-indexed BufferGeometry
 function buildAdjacencyList(geometry: THREE.BufferGeometry) {
@@ -526,6 +550,10 @@ export default function Viewer3D() {
   const [modelDimensions, setModelDimensions] = useState({ x: 0, y: 0, z: 0, volume: 0 });
   const [printScale, setPrintScale] = useState(100);
   
+  // Miniature scaling states
+  const [miniatureScaleMode, setMiniatureScaleMode] = useState<"human" | "direct">("human");
+  const [customMiniatureRatio, setCustomMiniatureRatio] = useState(16);
+  
   // SLA specific
   const [isHollow, setIsHollow] = useState(false);
   const [layerHeight, setLayerHeight] = useState(0.05); // in mm
@@ -538,6 +566,47 @@ export default function Viewer3D() {
   const [fdmPrintSpeed, setFdmPrintSpeed] = useState(60); // in mm/s
   const [fdmFilamentCostPerKg, setFdmFilamentCostPerKg] = useState(25); // USD or BRL per kg
   const [fdmWallCount, setFdmWallCount] = useState(2); // number of walls/perimeters
+
+  // Perceived performance simulation for print estimator calculations
+  const [isEstimating, setIsEstimating] = useState(false);
+  const [estimateProgress, setEstimateProgress] = useState(100);
+
+  useEffect(() => {
+    // Only run if we actually have a model loaded
+    if (!modelGeometry) return;
+
+    setIsEstimating(true);
+    setEstimateProgress(0);
+
+    let currentProgress = 0;
+    const interval = setInterval(() => {
+      // Simulate random chunks of calculation progress
+      currentProgress += Math.floor(Math.random() * 20) + 10;
+      if (currentProgress >= 100) {
+        currentProgress = 100;
+        clearInterval(interval);
+        setTimeout(() => {
+          setIsEstimating(false);
+        }, 120);
+      }
+      setEstimateProgress(currentProgress);
+    }, 40);
+
+    return () => clearInterval(interval);
+  }, [
+    printScale,
+    estimatorType,
+    isHollow,
+    layerHeight,
+    exposureTime,
+    resinCostPerKg,
+    fdmInfill,
+    fdmLayerHeight,
+    fdmPrintSpeed,
+    fdmFilamentCostPerKg,
+    fdmWallCount,
+    modelDimensions.volume // trigger when a new model is uploaded or changed
+  ]);
 
   // Settings Import/Export States
   const [settingsNotification, setSettingsNotification] = useState<{ message: string; type: "success" | "error" } | null>(null);
@@ -696,6 +765,95 @@ export default function Viewer3D() {
     });
     setTimeout(() => setSettingsNotification(null), 3000);
   };
+
+  // Watermark / Marca d'água States
+  const [watermarkEnabled, setWatermarkEnabled] = useState(false);
+  const [watermarkText, setWatermarkText] = useState("VERTICE");
+  const [watermarkPlacement, setWatermarkPlacement] = useState<"base" | "top" | "front" | "back" | "left" | "right">("base");
+  const [watermarkSize, setWatermarkSize] = useState(0.25);
+  const [watermarkDepth, setWatermarkDepth] = useState(0.04);
+  const [watermarkColor, setWatermarkColor] = useState("#00E5FF");
+  const [watermarkOffsetX, setWatermarkOffsetX] = useState(0);
+  const [watermarkOffsetY, setWatermarkOffsetY] = useState(0);
+  const [watermarkOffsetZ, setWatermarkOffsetZ] = useState(0);
+  const [watermarkRotationX, setWatermarkRotationX] = useState(0);
+  const [watermarkRotationY, setWatermarkRotationY] = useState(0);
+  const [watermarkRotationZ, setWatermarkRotationZ] = useState(0);
+  const [watermarkStyle, setWatermarkStyle] = useState<"raised" | "recessed" | "overlay">("raised");
+
+  const watermarkParams = useMemo(() => {
+    if (!modelDimensions.x || !modelDimensions.y || !modelDimensions.z) {
+      return { position: [0, 0, 0] as [number, number, number], rotation: [0, 0, 0] as [number, number, number] };
+    }
+
+    let px = 0;
+    let py = 0;
+    let pz = 0;
+
+    // Rotation angles in radians
+    let rx = 0;
+    let ry = 0;
+    let rz = 0;
+
+    const hx = modelDimensions.x / 2;
+    const hy = modelDimensions.y / 2;
+    const hz = modelDimensions.z / 2;
+
+    switch (watermarkPlacement) {
+      case "base":
+        py = -hy;
+        rx = Math.PI / 2; // Lie flat under the bottom surface
+        break;
+      case "top":
+        py = hy;
+        rx = -Math.PI / 2; // Lie flat on top surface
+        break;
+      case "front":
+        pz = hz;
+        rx = 0;
+        ry = 0;
+        break;
+      case "back":
+        pz = -hz;
+        rx = 0;
+        ry = Math.PI; // Face backwards
+        break;
+      case "left":
+        px = -hx;
+        rx = 0;
+        ry = -Math.PI / 2; // Face left
+        break;
+      case "right":
+        px = hx;
+        rx = 0;
+        ry = Math.PI / 2; // Face right
+        break;
+    }
+
+    // Add user defined offsets
+    px += watermarkOffsetX;
+    py += watermarkOffsetY;
+    pz += watermarkOffsetZ;
+
+    // Add extra rotations
+    rx += (watermarkRotationX * Math.PI) / 180;
+    ry += (watermarkRotationY * Math.PI) / 180;
+    rz += (watermarkRotationZ * Math.PI) / 180;
+
+    return {
+      position: [px, py, pz] as [number, number, number],
+      rotation: [rx, ry, rz] as [number, number, number]
+    };
+  }, [
+    modelDimensions,
+    watermarkPlacement,
+    watermarkOffsetX,
+    watermarkOffsetY,
+    watermarkOffsetZ,
+    watermarkRotationX,
+    watermarkRotationY,
+    watermarkRotationZ
+  ]);
 
   const effectiveIsolateGroupId = autoIsolateActive ? activeGroupId : isolateGroupId;
 
@@ -1486,6 +1644,35 @@ export default function Viewer3D() {
     }, 100);
   };
 
+  const getSlicingStatus = (progress: number) => {
+    if (progress < 25) return "Analisando malha 3D / Analyzing mesh...";
+    if (progress < 55) return "Calculando volumes e fatiamento / Computing volume...";
+    if (progress < 80) return "Estipulando tempo de impressão / Estimating print time...";
+    return "Finalizando estimativas / Finalizing estimates...";
+  };
+
+  // Calcule as dimensões originais e escalonadas do objeto para exibição em mm/cm
+  const originalX = modelDimensions.x * (modelDimensions.x < 15.0 ? 10.0 : 1.0);
+  const originalY = modelDimensions.y * (modelDimensions.y < 15.0 ? 10.0 : 1.0);
+  const originalZ = modelDimensions.z * (modelDimensions.z < 15.0 ? 10.0 : 1.0);
+
+  const scaledX = originalX * (printScale / 100.0);
+  const scaledY = originalY * (printScale / 100.0);
+  const scaledZ = originalZ * (printScale / 100.0);
+
+  const applyMiniatureScale = (denom: number, mode = miniatureScaleMode) => {
+    if (mode === "human") {
+      if (originalZ > 0) {
+        const targetZ = 1800.0 / denom; // standard 180cm human height scaled
+        const calculatedScale = (targetZ / originalZ) * 100.0;
+        setPrintScale(Math.max(0.1, Math.min(2000, Math.round(calculatedScale * 10) / 10)));
+      }
+    } else {
+      const calculatedScale = 100.0 / denom;
+      setPrintScale(Math.max(0.1, Math.min(2000, Math.round(calculatedScale * 10) / 10)));
+    }
+  };
+
   return (
     <div className="flex flex-col h-full overflow-hidden text-white bg-[#080808]">
       {/* HEADER AREA */}
@@ -1571,6 +1758,34 @@ export default function Viewer3D() {
                     }}
                   />
                   <Grid infiniteGrid fadeDistance={30} sectionColor="#333" cellColor="#111" />
+
+                  {/* 3D TEXT WATERMARK / MARCA D'ÁGUA 3D */}
+                  {watermarkEnabled && watermarkText.trim() !== "" && (
+                    <Text
+                      position={watermarkParams.position}
+                      rotation={watermarkParams.rotation}
+                      fontSize={watermarkSize}
+                      color={watermarkStyle === "recessed" ? "#0a0a0a" : watermarkColor}
+                      maxWidth={Math.max(modelDimensions.x, modelDimensions.y, modelDimensions.z) * 1.5}
+                      textAlign="center"
+                      anchorX="center"
+                      anchorY="middle"
+                      depthOffset={watermarkStyle === "overlay" ? -1 : 0}
+                      outlineWidth={watermarkStyle === "recessed" ? 0.012 : 0}
+                      outlineColor={watermarkStyle === "recessed" ? watermarkColor : "transparent"}
+                    >
+                      {watermarkText}
+                      <meshStandardMaterial
+                        color={watermarkStyle === "recessed" ? "#151515" : watermarkColor}
+                        roughness={0.4}
+                        metalness={watermarkStyle === "overlay" ? 0.0 : 0.4}
+                        transparent={watermarkStyle === "overlay"}
+                        opacity={watermarkStyle === "overlay" ? 0.4 : 1.0}
+                        depthWrite={watermarkStyle !== "overlay"}
+                        side={THREE.DoubleSide}
+                      />
+                    </Text>
+                  )}
                 </Canvas>
 
                 {/* FLOATING CONTROLS GUIDE */}
@@ -1869,25 +2084,87 @@ export default function Viewer3D() {
               </div>
 
               {/* ESTIMATES RESULTS BOX */}
-              <div className="bg-[#111] border border-zinc-900 rounded p-4 space-y-4 mb-4 font-sans">
+              <div className="bg-[#111] border border-zinc-900 rounded p-4 space-y-4 mb-4 font-sans relative overflow-hidden transition-all duration-300">
+                {/* Thin top edge glowing progress bar */}
+                {isEstimating && (
+                  <div className="absolute top-0 left-0 right-0 h-[2px] bg-zinc-950 z-20">
+                    <div 
+                      className={`h-full transition-all duration-100 ease-out ${
+                        estimatorType === "SLA" 
+                          ? "bg-gradient-to-r from-cyan-500 to-[#00E5FF] shadow-[0_0_8px_rgba(0,229,255,0.8)]" 
+                          : "bg-gradient-to-r from-emerald-500 to-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.8)]"
+                      }`}
+                      style={{ width: `${estimateProgress}%` }}
+                    />
+                  </div>
+                )}
+
+                {/* Animated Scanner Overloading Layer */}
+                {isEstimating && (
+                  <div className="absolute inset-0 bg-zinc-950/85 backdrop-blur-[1px] flex flex-col items-center justify-center space-y-3 z-10 select-none">
+                    {/* Glowing light sweep */}
+                    <div className="absolute inset-0 pointer-events-none overflow-hidden rounded">
+                      <div className={`w-full h-1/2 bg-gradient-to-b ${
+                        estimatorType === "SLA" ? "from-[#00E5FF]/5 to-transparent" : "from-emerald-400/5 to-transparent"
+                      } absolute top-0 left-0 right-0 animate-scanner-loop border-b ${
+                        estimatorType === "SLA" ? "border-[#00E5FF]/20" : "border-emerald-400/20"
+                      }`} />
+                    </div>
+
+                    <div className="flex items-center gap-2">
+                      <RefreshCw className={`w-3.5 h-3.5 animate-spin ${estimatorType === "SLA" ? "text-[#00E5FF]" : "text-emerald-400"}`} />
+                      <span className="text-[9px] uppercase font-bold tracking-widest text-zinc-300">
+                        {estimatorType === "SLA" ? "Fatiando SLA..." : "Fatiando FDM..."}
+                      </span>
+                    </div>
+
+                    <div className="text-center space-y-1 w-full max-w-[220px] px-4">
+                      <div className="flex justify-between items-center text-[8px] uppercase font-mono text-zinc-500">
+                        <span>Status</span>
+                        <span className={`${estimatorType === "SLA" ? "text-[#00E5FF]" : "text-emerald-400"} font-bold`}>
+                          {estimateProgress}%
+                        </span>
+                      </div>
+                      <div className="w-full h-[3px] bg-zinc-900 rounded-full overflow-hidden">
+                        <div 
+                          className={`h-full transition-all duration-75 ${estimatorType === "SLA" ? "bg-[#00E5FF]" : "bg-emerald-400"}`}
+                          style={{ width: `${estimateProgress}%` }}
+                        />
+                      </div>
+                      <p className="text-[8px] font-medium text-zinc-400 uppercase tracking-wider text-center pt-1.5 truncate">
+                        {getSlicingStatus(estimateProgress)}
+                      </p>
+                    </div>
+                  </div>
+                )}
+
                 {/* Print Size Dimensions */}
                 <div className="grid grid-cols-3 gap-2 text-center pb-3 border-b border-zinc-900">
-                  <div>
-                    <span className="text-[8px] uppercase text-zinc-500 block">X (Largura)</span>
-                    <span className="font-mono text-xs text-white font-bold">
-                      {((modelDimensions.x * (modelDimensions.x < 15.0 ? 10.0 : 1.0)) * (printScale / 100.0)).toFixed(1)} mm
+                  <div className="bg-zinc-950/40 p-2 rounded border border-zinc-900/40">
+                    <span className="text-[8px] uppercase text-zinc-500 block font-bold">X (Largura)</span>
+                    <span className="font-mono text-xs text-white font-black block mt-1">
+                      {scaledX.toFixed(1)} <span className="text-[9px] text-zinc-500 font-normal">mm</span>
+                    </span>
+                    <span className="font-mono text-[10px] text-[#00E5FF] font-bold block mt-0.5">
+                      {(scaledX / 10.0).toFixed(2)} <span className="text-[8px] text-[#00E5FF]/60 font-normal">cm</span>
                     </span>
                   </div>
-                  <div>
-                    <span className="text-[8px] uppercase text-zinc-500 block">Y (Comprimento)</span>
-                    <span className="font-mono text-xs text-white font-bold">
-                      {((modelDimensions.y * (modelDimensions.y < 15.0 ? 10.0 : 1.0)) * (printScale / 100.0)).toFixed(1)} mm
+                  <div className="bg-zinc-950/40 p-2 rounded border border-zinc-900/40">
+                    <span className="text-[8px] uppercase text-zinc-500 block font-bold">Y (Comprimento)</span>
+                    <span className="font-mono text-xs text-white font-black block mt-1">
+                      {scaledY.toFixed(1)} <span className="text-[9px] text-zinc-500 font-normal">mm</span>
+                    </span>
+                    <span className="font-mono text-[10px] text-[#00E5FF] font-bold block mt-0.5">
+                      {(scaledY / 10.0).toFixed(2)} <span className="text-[8px] text-[#00E5FF]/60 font-normal">cm</span>
                     </span>
                   </div>
-                  <div>
-                    <span className="text-[8px] uppercase text-zinc-500 block">Z (Altura)</span>
-                    <span className="font-mono text-xs text-[#00E5FF] font-bold">
-                      {((modelDimensions.z * (modelDimensions.z < 15.0 ? 10.0 : 1.0)) * (printScale / 100.0)).toFixed(1)} mm
+                  <div className="bg-zinc-950/40 p-2 rounded border border-zinc-900/40">
+                    <span className="text-[8px] uppercase text-zinc-500 block font-bold">Z (Altura)</span>
+                    <span className="font-mono text-xs text-white font-black block mt-1">
+                      {scaledZ.toFixed(1)} <span className="text-[9px] text-zinc-500 font-normal">mm</span>
+                    </span>
+                    <span className="font-mono text-[10px] text-[#00E5FF] font-bold block mt-0.5">
+                      {(scaledZ / 10.0).toFixed(2)} <span className="text-[8px] text-[#00E5FF]/60 font-normal">cm</span>
                     </span>
                   </div>
                 </div>
@@ -2120,18 +2397,181 @@ export default function Viewer3D() {
               {/* ESTIMATES CONTROL SLIDERS */}
               <div className="space-y-4 bg-zinc-950 p-3.5 border border-zinc-900 rounded font-sans">
                 {/* Print Scale - Shared between SLA & FDM */}
-                <div className="space-y-1.5">
-                  <div className="flex justify-between text-[10px] uppercase font-bold text-zinc-400">
-                    <span>Escala / Scale</span>
-                    <span className="text-[#00E5FF] font-mono">{printScale}%</span>
+                <div className="space-y-3">
+                  <div className="flex justify-between items-center text-[10px] uppercase font-bold text-zinc-400">
+                    <span className="flex items-center">
+                      Escala / Scale
+                      <HelpTooltip text="Ajusta o tamanho final do modelo impresso. Alterar a escala afeta proporcionalmente o volume, tempo e peso da peça." />
+                    </span>
+                    <div className="flex items-center bg-zinc-900 border border-zinc-850 rounded px-1.5 py-0.5 w-24">
+                      <input
+                        type="number"
+                        value={printScale}
+                        onChange={(e) => {
+                          const val = parseFloat(e.target.value);
+                          if (!isNaN(val)) {
+                            setPrintScale(Math.max(1, Math.min(2000, val)));
+                          }
+                        }}
+                        className="w-full bg-transparent text-right text-xs font-mono text-[#00E5FF] focus:outline-none"
+                        min="1"
+                        max="2000"
+                        step="0.1"
+                      />
+                      <span className="text-[10px] text-zinc-500 font-bold ml-1">%</span>
+                    </div>
                   </div>
+                  
                   <Slider
                     value={[printScale]}
                     onValueChange={(v) => setPrintScale(v[0])}
-                    min={10}
-                    max={300}
-                    step={5}
+                    min={1}
+                    max={500}
+                    step={1}
                   />
+
+                  {/* Escalas Rápidas / Quick Percent Presets */}
+                  <div className="space-y-1">
+                    <span className="text-[8px] uppercase font-bold text-zinc-500 block">Atalhos de Escala (%):</span>
+                    <div className="grid grid-cols-6 gap-1">
+                      {[25, 50, 75, 100, 150, 200].map((preset) => (
+                        <button
+                          key={preset}
+                          onClick={() => setPrintScale(preset)}
+                          className={`py-1 text-[8px] font-mono uppercase border rounded transition-all cursor-pointer text-center ${
+                            printScale === preset
+                              ? "bg-[#00E5FF] text-black border-[#00E5FF] font-bold"
+                              : "bg-zinc-950 text-zinc-400 border-zinc-900 hover:text-white"
+                          }`}
+                        >
+                          {preset}%
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* RPG / Miniature Height Targets */}
+                  <div className="space-y-3 pt-2.5 border-t border-zinc-900/60">
+                    <span className="text-[8px] uppercase font-bold text-[#00E5FF] flex items-center gap-1">
+                      <Sparkles className="w-2.5 h-2.5" /> 
+                      <span>Proporções de Miniatura (Mercado de Estatuetas & RPG)</span>
+                      <HelpTooltip text="Atalhos rápidos para escalar estatuetas e personagens de acordo com escalas de RPG consagradas no mercado." />
+                    </span>
+
+                    {/* Mode Selector */}
+                    <div className="grid grid-cols-2 gap-1 bg-zinc-950 p-0.5 rounded border border-zinc-900">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setMiniatureScaleMode("human");
+                        }}
+                        className={`py-1 px-1 text-[8px] font-bold uppercase rounded transition-all cursor-pointer text-center ${
+                          miniatureScaleMode === "human"
+                            ? "bg-[#00E5FF] text-black"
+                            : "text-zinc-400 hover:text-white"
+                        }`}
+                        title="Mantém a proporção real de um humano de 1.80m na escala selecionada"
+                      >
+                        Base Humana (1.80m)
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setMiniatureScaleMode("direct");
+                        }}
+                        className={`py-1 px-1 text-[8px] font-bold uppercase rounded transition-all cursor-pointer text-center ${
+                          miniatureScaleMode === "direct"
+                            ? "bg-[#00E5FF] text-black"
+                            : "text-zinc-400 hover:text-white"
+                        }`}
+                        title="Escalona as dimensões do arquivo diretamente pela fração (Ex: 1/16 do tamanho do arquivo original)"
+                      >
+                        Direto do Arquivo (1:1)
+                      </button>
+                    </div>
+
+                    {/* Explanatory subtitle */}
+                    <p className="text-[7.5px] text-zinc-500 uppercase tracking-wide leading-normal">
+                      {miniatureScaleMode === "human" 
+                        ? "Ajusta a altura final (Z) com base na proporção que um humano de 1.80m teria nesta escala."
+                        : "Divide o tamanho original do arquivo STL diretamente pelo denominador selecionado."
+                      }
+                    </p>
+
+                    {/* Miniature Presets Grid */}
+                    <div className="grid grid-cols-3 gap-1">
+                      {[
+                        { label: "1/8 (22.5cm)", value: 8, subtitle: "Estátua Grande" },
+                        { label: "1/12 (15cm)", value: 12, subtitle: "Dollhouse / Ação" },
+                        { label: "1/16 (11.25cm)", value: 16, subtitle: "Colecionável" },
+                        { label: "1/24 (7.5cm)", value: 24, subtitle: "Estatuetas 75mm" },
+                        { label: "1/32 (5.6cm)", value: 32, subtitle: "Históricos 54mm" },
+                        { label: "1/35 (5.1cm)", value: 35, subtitle: "Plastimodelismo" },
+                        { label: "1/48 (3.75cm)", value: 48, subtitle: "Aeromodelos" },
+                        { label: "1/56 (3.2cm)", value: 56, subtitle: "Heroic 32mm" },
+                        { label: "1/64 (2.8cm)", value: 64, subtitle: "RPG de Mesa 28mm" },
+                        { label: "1/72 (2.5cm)", value: 72, subtitle: "Históricos Micro" },
+                        { label: "1/100 (1.8cm)", value: 100, subtitle: "Wargame 15mm" }
+                      ].map((item) => {
+                        // Calculate corresponding target scale percentage to see if it matches current printScale
+                        let targetScale = 0;
+                        if (miniatureScaleMode === "human" && originalZ > 0) {
+                          const targetZ = 1800.0 / item.value;
+                          targetScale = (targetZ / originalZ) * 100.0;
+                        } else {
+                          targetScale = 100.0 / item.value;
+                        }
+                        const isCurrentActive = Math.abs(printScale - targetScale) < 0.2;
+
+                        return (
+                          <button
+                            key={item.label}
+                            type="button"
+                            onClick={() => {
+                              applyMiniatureScale(item.value);
+                            }}
+                            disabled={miniatureScaleMode === "human" && !originalZ}
+                            className={`p-1 border rounded transition-all cursor-pointer text-left flex flex-col justify-between h-[36px] ${
+                              isCurrentActive
+                                ? "bg-[#00E5FF]/20 border-[#00E5FF] text-[#00E5FF]"
+                                : "bg-zinc-950 text-zinc-400 border-zinc-900 hover:text-white disabled:opacity-30"
+                            }`}
+                          >
+                            <span className="text-[9px] font-black leading-tight block">{item.label.split(" ")[0]}</span>
+                            <span className="text-[7px] text-zinc-500 block truncate font-medium">{item.subtitle}</span>
+                          </button>
+                        );
+                      })}
+                    </div>
+
+                    {/* Custom Miniature Ratio Input */}
+                    <div className="flex gap-2 items-center bg-zinc-950 p-2 rounded border border-zinc-900 mt-1">
+                      <span className="text-[8px] uppercase font-bold text-zinc-500">Razão Custom:</span>
+                      <div className="flex items-center bg-zinc-900 border border-zinc-800 rounded px-1.5 py-0.5 flex-1">
+                        <span className="text-[10px] text-zinc-500 font-bold mr-1">1 /</span>
+                        <input
+                          type="number"
+                          value={customMiniatureRatio}
+                          onChange={(e) => {
+                            const val = parseInt(e.target.value);
+                            if (!isNaN(val) && val > 0) {
+                              setCustomMiniatureRatio(val);
+                            }
+                          }}
+                          className="w-full bg-transparent text-xs font-mono text-[#00E5FF] focus:outline-none"
+                          min="1"
+                          max="1000"
+                        />
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => applyMiniatureScale(customMiniatureRatio)}
+                        className="px-2 py-1 text-[8px] uppercase font-black tracking-wider bg-[#00E5FF]/20 text-[#00E5FF] hover:bg-[#00E5FF]/35 border border-[#00E5FF]/40 rounded cursor-pointer transition-all"
+                      >
+                        Aplicar
+                      </button>
+                    </div>
+                  </div>
                 </div>
 
                 {/* Mode Specific Controls */}
@@ -2140,7 +2580,10 @@ export default function Viewer3D() {
                     {/* Hollow model Toggle */}
                     <div className="flex items-center justify-between border-t border-zinc-900/60 pt-3">
                       <div>
-                        <span className="text-[10px] uppercase font-bold text-zinc-400 block">Modelo Oco / Hollow</span>
+                        <span className="text-[10px] uppercase font-bold text-zinc-400 flex items-center">
+                          <span>Modelo Oco / Hollow</span>
+                          <HelpTooltip text="Cria paredes de 2mm no modelo em vez de imprimi-lo maciço, gerando uma enorme economia de até 70% de resina líquida." />
+                        </span>
                         <span className="text-[9px] text-zinc-500">Parede de 2mm (economiza resina)</span>
                       </div>
                       <button
@@ -2157,8 +2600,11 @@ export default function Viewer3D() {
 
                     {/* Layer Height Slider */}
                     <div className="space-y-1.5 border-t border-zinc-900/60 pt-3">
-                      <div className="flex justify-between text-[10px] uppercase font-bold text-zinc-400">
-                        <span>Camada / Layer Height</span>
+                      <div className="flex justify-between items-center text-[10px] uppercase font-bold text-zinc-400">
+                        <span className="flex items-center">
+                          Camada / Layer Height
+                          <HelpTooltip text="Determina a espessura de cada camada de cura. Valores menores (ex: 20μm) geram mais detalhes, mas aumentam o tempo total de impressão." />
+                        </span>
                         <span className="text-purple-400 font-mono">{(layerHeight * 1000).toFixed(0)} μm ({layerHeight} mm)</span>
                       </div>
                       <Slider
@@ -2172,8 +2618,11 @@ export default function Viewer3D() {
 
                     {/* Exposure Time Slider */}
                     <div className="space-y-1.5 border-t border-zinc-900/60 pt-3">
-                      <div className="flex justify-between text-[10px] uppercase font-bold text-zinc-400">
-                        <span>Exposição / Exposure</span>
+                      <div className="flex justify-between items-center text-[10px] uppercase font-bold text-zinc-400">
+                        <span className="flex items-center">
+                          Exposição / Exposure
+                          <HelpTooltip text="Tempo em segundos que a tela UV fica acesa por camada para curar a resina líquida. Ajuste de acordo com a resina utilizada." />
+                        </span>
                         <span className="text-yellow-400 font-mono">{exposureTime}s</span>
                       </div>
                       <Slider
@@ -2187,8 +2636,11 @@ export default function Viewer3D() {
 
                     {/* Resin Cost */}
                     <div className="space-y-1.5 border-t border-zinc-900/60 pt-3">
-                      <div className="flex justify-between text-[10px] uppercase font-bold text-zinc-400">
-                        <span>Preço da Resina / Resin Cost</span>
+                      <div className="flex justify-between items-center text-[10px] uppercase font-bold text-zinc-400">
+                        <span className="flex items-center">
+                          Preço da Resina / Resin Cost
+                          <HelpTooltip text="Custo por quilograma da resina líquida. Usado para calcular a estimativa de preço final de consumo da peça." />
+                        </span>
                         <span className="text-zinc-300 font-mono">${resinCostPerKg} / kg</span>
                       </div>
                       <Slider
@@ -2204,8 +2656,11 @@ export default function Viewer3D() {
                   <>
                     {/* Infill Slider */}
                     <div className="space-y-1.5 border-t border-zinc-900/60 pt-3">
-                      <div className="flex justify-between text-[10px] uppercase font-bold text-zinc-400">
-                        <span>Preenchimento / Infill</span>
+                      <div className="flex justify-between items-center text-[10px] uppercase font-bold text-zinc-400">
+                        <span className="flex items-center">
+                          Preenchimento / Infill
+                          <HelpTooltip text="Densidade da estrutura interna da peça em grade. 0% é oca, 100% é totalmente sólida. Valores de 15-20% são ideais para miniaturas e decorativos." />
+                        </span>
                         <span className="text-emerald-400 font-mono">{fdmInfill}%</span>
                       </div>
                       <Slider
@@ -2219,8 +2674,11 @@ export default function Viewer3D() {
 
                     {/* Wall/Shell count Slider */}
                     <div className="space-y-1.5 border-t border-zinc-900/60 pt-3">
-                      <div className="flex justify-between text-[10px] uppercase font-bold text-zinc-400">
-                        <span>Paredes / Wall Count (Perímetros)</span>
+                      <div className="flex justify-between items-center text-[10px] uppercase font-bold text-zinc-400">
+                        <span className="flex items-center">
+                          Paredes / Wall Count (Perímetros)
+                          <HelpTooltip text="Quantidade de voltas externas (perímetros/casca) que a impressora faz antes de preencher o interior. Mais paredes aumentam a resistência da peça." />
+                        </span>
                         <span className="text-cyan-400 font-mono">{fdmWallCount} linhas</span>
                       </div>
                       <Slider
@@ -2234,8 +2692,11 @@ export default function Viewer3D() {
 
                     {/* Layer Height Slider */}
                     <div className="space-y-1.5 border-t border-zinc-900/60 pt-3">
-                      <div className="flex justify-between text-[10px] uppercase font-bold text-zinc-400">
-                        <span>Altura de Camada / Layer Height</span>
+                      <div className="flex justify-between items-center text-[10px] uppercase font-bold text-zinc-400">
+                        <span className="flex items-center">
+                          Altura de Camada / Layer Height
+                          <HelpTooltip text="Altura de cada linha de filamento depositado. Camadas mais finas (ex: 0.12mm) dão excelente acabamento, mas demoram mais para fatiar e imprimir." />
+                        </span>
                         <span className="text-purple-400 font-mono">{fdmLayerHeight} mm</span>
                       </div>
                       <Slider
@@ -2249,8 +2710,11 @@ export default function Viewer3D() {
 
                     {/* Printing Speed Slider */}
                     <div className="space-y-1.5 border-t border-zinc-900/60 pt-3">
-                      <div className="flex justify-between text-[10px] uppercase font-bold text-zinc-400">
-                        <span>Velocidade / Print Speed</span>
+                      <div className="flex justify-between items-center text-[10px] uppercase font-bold text-zinc-400">
+                        <span className="flex items-center">
+                          Velocidade / Print Speed
+                          <HelpTooltip text="Velocidade de deslocamento do bocal de extrusão durante a impressão. Velocidades muito altas podem reduzir a precisão dos detalhes." />
+                        </span>
                         <span className="text-yellow-400 font-mono">{fdmPrintSpeed} mm/s</span>
                       </div>
                       <Slider
@@ -2264,8 +2728,11 @@ export default function Viewer3D() {
 
                     {/* Filament Cost Slider */}
                     <div className="space-y-1.5 border-t border-zinc-900/60 pt-3">
-                      <div className="flex justify-between text-[10px] uppercase font-bold text-zinc-400">
-                        <span>Preço do Filamento / Filament Cost</span>
+                      <div className="flex justify-between items-center text-[10px] uppercase font-bold text-zinc-400">
+                        <span className="flex items-center">
+                          Preço do Filamento / Filament Cost
+                          <HelpTooltip text="Preço por quilograma do rolo de filamento (PLA/ABS/PETG). Usado para calcular o custo estimado de matéria-prima." />
+                        </span>
                         <span className="text-zinc-300 font-mono">${fdmFilamentCostPerKg} / kg</span>
                       </div>
                       <Slider
@@ -2293,8 +2760,9 @@ export default function Viewer3D() {
               <div className="bg-[#111] border border-zinc-900 rounded p-4 space-y-4 font-sans">
                 {/* PRESET PROFILES DROPDOWN SELECTOR */}
                 <div className="space-y-1.5">
-                  <label className="text-[10px] uppercase font-bold text-zinc-400 block">
-                    Carregar Perfil Pré-definido / Load Preset
+                  <label className="text-[10px] uppercase font-bold text-zinc-400 flex items-center">
+                    <span>Carregar Perfil Pré-definido / Load Preset</span>
+                    <HelpTooltip text="Carregue conjuntos de configurações pré-testadas para impressões rápidas, detalhadas ou resistentes, otimizando o seu tempo." />
                   </label>
                   <select
                     onChange={(e) => {
@@ -2368,7 +2836,10 @@ export default function Viewer3D() {
           {/* COLOR SELECTION GROUPS */}
           <section>
             <div className="flex items-center justify-between mb-4">
-              <h3 className="text-[11px] uppercase tracking-widest text-zinc-400 font-bold">02. Active Paint Part / Parte Ativa</h3>
+              <h3 className="text-[11px] uppercase tracking-widest text-zinc-400 font-bold flex items-center">
+                <span>02. Active Paint Part / Parte Ativa</span>
+                <HelpTooltip text="Gerencie e selecione os componentes ou partes do seu boneco/peça para aplicar cores diferentes de forma isolada." />
+              </h3>
               
               <button
                 onClick={() => {
@@ -2441,7 +2912,10 @@ export default function Viewer3D() {
                         <div className="bg-[#161616] p-3 border border-zinc-850 space-y-3 rounded">
                           {/* Name input */}
                           <div>
-                            <label className="text-[9px] uppercase text-zinc-500 font-bold block mb-1">Nome da Peça / Part Name</label>
+                            <label className="text-[9px] uppercase text-zinc-500 font-bold flex items-center mb-1">
+                              <span>Nome da Peça / Part Name</span>
+                              <HelpTooltip text="Altere o nome identificador deste componente (ex: Capa, Espada, Cabelo) para facilitar a pintura 3D." />
+                            </label>
                             <input
                               type="text"
                               value={group.name}
@@ -2453,7 +2927,10 @@ export default function Viewer3D() {
 
                           {/* Color Palette & Custom picker */}
                           <div>
-                            <label className="text-[9px] uppercase text-zinc-500 font-bold block mb-2">Paleta de Cores / Color Palette</label>
+                            <label className="text-[9px] uppercase text-zinc-500 font-bold flex items-center mb-2">
+                              <span>Paleta de Cores / Color Palette</span>
+                              <HelpTooltip text="Selecione a cor que será aplicada a este componente. Você também pode clicar no botão colorido '+' para escolher um tom personalizado." />
+                            </label>
                             <div className="flex flex-wrap gap-2 items-center">
                               {PRESET_COLORS.map((presetColor) => (
                                 <button
@@ -2576,10 +3053,225 @@ export default function Viewer3D() {
             </section>
           )}
 
+          {/* 3D WATERMARK CONTROLS */}
+          {modelGeometry && (
+            <section className="border-t border-zinc-900 pt-6">
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-[11px] uppercase tracking-widest text-zinc-400 font-bold flex items-center gap-2">
+                  <Ruler className="w-3.5 h-3.5 text-[#00E5FF]" />
+                  04. Marca d'água 3D / 3D Watermark
+                </h3>
+                
+                <button
+                  onClick={() => setWatermarkEnabled(!watermarkEnabled)}
+                  className={`px-2.5 py-1 text-[9px] font-black uppercase tracking-wider border rounded transition-all cursor-pointer ${
+                    watermarkEnabled
+                      ? "bg-[#00E5FF]/20 border-[#00E5FF] text-[#00E5FF]"
+                      : "bg-[#151515] border-zinc-800 text-zinc-500 hover:text-zinc-300"
+                  }`}
+                >
+                  {watermarkEnabled ? "Ativado" : "Desativado"}
+                </button>
+              </div>
+
+              <p className="text-[10px] text-zinc-500 uppercase tracking-wider mb-4 leading-relaxed">
+                Adicione uma assinatura, logo ou identificação 3D na base ou em qualquer superfície do seu modelo.
+              </p>
+
+              {watermarkEnabled && (
+                <div className="bg-[#111] border border-zinc-900 rounded p-4 space-y-4 font-sans">
+                  {/* WATERMARK TEXT INPUT */}
+                  <div className="space-y-1.5">
+                    <label className="text-[9px] uppercase font-bold text-zinc-400 block">Texto da Marca d'água / Text</label>
+                    <input
+                      type="text"
+                      value={watermarkText}
+                      onChange={(e) => setWatermarkText(e.target.value.toUpperCase().slice(0, 32))}
+                      placeholder="Ex: VERTICE, COPYRIGHT..."
+                      className="w-full bg-[#151515] border border-zinc-850 focus:border-[#00E5FF] text-xs text-white rounded px-3 py-2 outline-none transition-all"
+                    />
+                  </div>
+
+                  {/* PLACEMENT SELECTOR */}
+                  <div className="space-y-1.5">
+                    <label className="text-[9px] uppercase font-bold text-zinc-400 block">Superfície / Placement</label>
+                    <div className="grid grid-cols-3 gap-1">
+                      {(["base", "top", "front", "back", "left", "right"] as const).map((place) => (
+                        <button
+                          key={place}
+                          onClick={() => setWatermarkPlacement(place)}
+                          className={`py-1.5 px-1 text-[8px] font-bold uppercase border rounded transition-all cursor-pointer truncate ${
+                            watermarkPlacement === place
+                              ? "bg-[#00E5FF] text-black border-[#00E5FF]"
+                              : "bg-zinc-950 text-zinc-400 border-zinc-850 hover:text-white"
+                          }`}
+                        >
+                          {place === "base" ? "Base" : place === "top" ? "Topo" : place === "front" ? "Frente" : place === "back" ? "Trás" : place === "left" ? "Esq" : "Dir"}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* STYLE SELECTOR */}
+                  <div className="space-y-1.5">
+                    <label className="text-[9px] uppercase font-bold text-zinc-400 block">Efeito Visual / Style</label>
+                    <div className="grid grid-cols-3 gap-1">
+                      {(["raised", "recessed", "overlay"] as const).map((style) => (
+                        <button
+                          key={style}
+                          onClick={() => setWatermarkStyle(style)}
+                          className={`py-1.5 px-1 text-[8px] font-bold uppercase border rounded transition-all cursor-pointer truncate ${
+                            watermarkStyle === style
+                              ? "bg-[#00E5FF] text-black border-[#00E5FF]"
+                              : "bg-zinc-950 text-zinc-400 border-zinc-850 hover:text-white"
+                          }`}
+                        >
+                          {style === "raised" ? "Em Relevo" : style === "recessed" ? "Baixo Relevo" : "Sobreposição"}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* SIZE SLIDER */}
+                  <div className="space-y-2">
+                    <div className="flex justify-between text-[9px] uppercase font-bold text-zinc-400">
+                      <span>Tamanho do Texto / Font Size</span>
+                      <span className="text-[#00E5FF] font-mono">{(watermarkSize).toFixed(2)}x</span>
+                    </div>
+                    <Slider
+                      value={[watermarkSize]}
+                      onValueChange={(val) => setWatermarkSize(val[0])}
+                      min={0.05}
+                      max={1.5}
+                      step={0.01}
+                    />
+                  </div>
+
+                  {/* POSITIONAL OFFSETS */}
+                  <div className="border-t border-zinc-900/60 pt-3 space-y-3">
+                    <span className="text-[9px] uppercase font-black tracking-wider text-zinc-500 block">Ajuste Fino de Posição / Position Offsets</span>
+                    
+                    {/* OFFSET X */}
+                    <div className="space-y-1">
+                      <div className="flex justify-between text-[8px] uppercase font-bold text-zinc-400">
+                        <span>Deslocamento X / Shift X</span>
+                        <span className="text-zinc-500 font-mono">{(watermarkOffsetX).toFixed(2)}</span>
+                      </div>
+                      <Slider
+                        value={[watermarkOffsetX]}
+                        onValueChange={(val) => setWatermarkOffsetX(val[0])}
+                        min={-Math.max(2, modelDimensions.x)}
+                        max={Math.max(2, modelDimensions.x)}
+                        step={0.02}
+                      />
+                    </div>
+
+                    {/* OFFSET Y */}
+                    <div className="space-y-1">
+                      <div className="flex justify-between text-[8px] uppercase font-bold text-zinc-400">
+                        <span>Deslocamento Y / Shift Y</span>
+                        <span className="text-zinc-500 font-mono">{(watermarkOffsetY).toFixed(2)}</span>
+                      </div>
+                      <Slider
+                        value={[watermarkOffsetY]}
+                        onValueChange={(val) => setWatermarkOffsetY(val[0])}
+                        min={-Math.max(2, modelDimensions.y)}
+                        max={Math.max(2, modelDimensions.y)}
+                        step={0.02}
+                      />
+                    </div>
+
+                    {/* OFFSET Z */}
+                    <div className="space-y-1">
+                      <div className="flex justify-between text-[8px] uppercase font-bold text-zinc-400">
+                        <span>Deslocamento Z / Shift Z</span>
+                        <span className="text-zinc-500 font-mono">{(watermarkOffsetZ).toFixed(2)}</span>
+                      </div>
+                      <Slider
+                        value={[watermarkOffsetZ]}
+                        onValueChange={(val) => setWatermarkOffsetZ(val[0])}
+                        min={-Math.max(2, modelDimensions.z)}
+                        max={Math.max(2, modelDimensions.z)}
+                        step={0.02}
+                      />
+                    </div>
+                  </div>
+
+                  {/* ROTATIONAL OFFSETS */}
+                  <div className="border-t border-zinc-900/60 pt-3 space-y-3">
+                    <span className="text-[9px] uppercase font-black tracking-wider text-zinc-500 block">Rotação Personalizada / Custom Rotation</span>
+                    
+                    {/* ROTATION X */}
+                    <div className="space-y-1">
+                      <div className="flex justify-between text-[8px] uppercase font-bold text-zinc-400">
+                        <span>Rotação X (Inclinar)</span>
+                        <span className="text-zinc-500 font-mono">{watermarkRotationX}°</span>
+                      </div>
+                      <Slider
+                        value={[watermarkRotationX]}
+                        onValueChange={(val) => setWatermarkRotationX(val[0])}
+                        min={-180}
+                        max={180}
+                        step={1}
+                      />
+                    </div>
+
+                    {/* ROTATION Y */}
+                    <div className="space-y-1">
+                      <div className="flex justify-between text-[8px] uppercase font-bold text-zinc-400">
+                        <span>Rotação Y (Girar)</span>
+                        <span className="text-zinc-500 font-mono">{watermarkRotationY}°</span>
+                      </div>
+                      <Slider
+                        value={[watermarkRotationY]}
+                        onValueChange={(val) => setWatermarkRotationY(val[0])}
+                        min={-180}
+                        max={180}
+                        step={1}
+                      />
+                    </div>
+
+                    {/* ROTATION Z */}
+                    <div className="space-y-1">
+                      <div className="flex justify-between text-[8px] uppercase font-bold text-zinc-400">
+                        <span>Rotação Z (Incline Lat)</span>
+                        <span className="text-zinc-500 font-mono">{watermarkRotationZ}°</span>
+                      </div>
+                      <Slider
+                        value={[watermarkRotationZ]}
+                        onValueChange={(val) => setWatermarkRotationZ(val[0])}
+                        min={-180}
+                        max={180}
+                        step={1}
+                      />
+                    </div>
+                  </div>
+
+                  {/* COLOR SELECTOR */}
+                  <div className="space-y-1.5 border-t border-zinc-900/60 pt-3">
+                    <label className="text-[9px] uppercase font-bold text-zinc-400 block">Cor da Pré-visualização / Color</label>
+                    <div className="flex gap-2">
+                      {["#00E5FF", "#FF1744", "#00E676", "#FFEB3B", "#FFFFFF", "#888888"].map((c) => (
+                        <button
+                          key={c}
+                          onClick={() => setWatermarkColor(c)}
+                          className={`w-5 h-5 rounded-full border transition-all cursor-pointer ${
+                            watermarkColor === c ? "border-white scale-110 shadow" : "border-transparent opacity-60 hover:opacity-100"
+                          }`}
+                          style={{ backgroundColor: c }}
+                        />
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              )}
+            </section>
+          )}
+
           {/* EXPORT PARTS FOR PRINT */}
           {modelGeometry && (
             <section className="flex-1 flex flex-col justify-end border-t border-zinc-900 pt-6">
-              <h3 className="text-[11px] uppercase tracking-widest text-zinc-400 mb-4 font-bold">04. Generate Separated Prints / Exportar</h3>
+              <h3 className="text-[11px] uppercase tracking-widest text-zinc-400 mb-4 font-bold">05. Generate Separated Prints / Exportar</h3>
               <p className="text-[10px] text-zinc-500 uppercase tracking-wider mb-4 leading-relaxed">
                 Export each colored region as an independent watertight STL mesh file, perfect for multi-extruder printing or separate part printing.
               </p>
