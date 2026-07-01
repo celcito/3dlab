@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { Sparkles, History, Loader2, Copy, Bookmark, Save, Trash2, Plus, Check, Image, Download, RefreshCw, Eye, Info, AlertTriangle } from "lucide-react";
+import { Sparkles, History, Loader2, Copy, Bookmark, Save, Trash2, Plus, Check, Image, Download, RefreshCw, Eye, Info, AlertTriangle, Upload, Camera, Link, Activity, Layers } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -47,6 +47,15 @@ export default function AiFigures() {
   const [generatedImage, setGeneratedImage] = useState("");
   const [aspectRatio, setAspectRatio] = useState("1:1");
   const [loadingStep, setLoadingStep] = useState(0);
+
+  // Photo-to-Figurine states
+  const [uploadedImage, setUploadedImage] = useState<string | null>(null);
+  const [isAnalyzingImage, setIsAnalyzingImage] = useState(false);
+  const [analysisResult, setAnalysisResult] = useState("");
+  const [selectedStyle, setSelectedStyle] = useState<"rpg" | "chibi" | "cyberpunk" | "classic">("rpg");
+  const [isDragActive, setIsDragActive] = useState(false);
+  const [activeTab, setActiveTab] = useState<"text" | "photo">("text");
+  const [physicalFormat, setPhysicalFormat] = useState<"statue" | "articulated" | "keychain" | "articulated_keychain">("statue");
 
   const defaultTemplates: PromptTemplate[] = [
     {
@@ -148,7 +157,7 @@ export default function AiFigures() {
       const response = await fetch("/api/ai-figures/generate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ prompt })
+        body: JSON.stringify({ prompt, physicalFormat })
       });
       
       const data = await response.json();
@@ -179,7 +188,8 @@ export default function AiFigures() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           prompt: targetPrompt,
-          aspectRatio
+          aspectRatio,
+          physicalFormat
         })
       });
 
@@ -205,6 +215,96 @@ export default function AiFigures() {
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
+  };
+
+  // Photo-to-Figurine helper functions
+  const handleImageUpload = (file: File) => {
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onloadend = () => {
+      setUploadedImage(reader.result as string);
+      setAnalysisResult("");
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const handleDrag = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (e.type === "dragenter" || e.type === "dragover") {
+      setIsDragActive(true);
+    } else if (e.type === "dragleave") {
+      setIsDragActive(false);
+    }
+  };
+
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragActive(false);
+    if (e.dataTransfer.files && e.dataTransfer.files[0]) {
+      handleImageUpload(e.dataTransfer.files[0]);
+    }
+  };
+
+  const handleAnalyzeImage = async () => {
+    if (!uploadedImage) return;
+
+    setIsAnalyzingImage(true);
+    setError("");
+    setAnalysisResult("");
+
+    try {
+      const response = await fetch("/api/ai-figures/analyze-image", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          image: uploadedImage,
+          style: selectedStyle,
+          physicalFormat
+        })
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.error || "Não foi possível analisar a imagem.");
+      }
+
+      setAnalysisResult(data.analysis);
+      setResult(data.optimizedPrompt);
+
+      // Automatically trigger 3D visual preview generation!
+      setIsGeneratingImage(true);
+      try {
+        const imgResponse = await fetch("/api/ai-figures/generate-image", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            prompt: data.optimizedPrompt,
+            aspectRatio,
+            physicalFormat
+          })
+        });
+
+        const imgData = await imgResponse.json();
+
+        if (!imgResponse.ok) {
+          throw new Error(imgData.error || "Não foi possível gerar o render visual.");
+        }
+
+        setGeneratedImage(imgData.imageUrl);
+      } catch (imgErr: any) {
+        setError("Imagem analisada, mas falhou ao renderizar visual: " + imgErr.message);
+      } finally {
+        setIsGeneratingImage(false);
+      }
+
+    } catch (err: any) {
+      setError(err.message);
+    } finally {
+      setIsAnalyzingImage(false);
+    }
   };
 
   const aspectRatios = [
@@ -239,147 +339,386 @@ export default function AiFigures() {
           {/* LEFT SIDE: CONTROLS & TEMPLATES (7 Cols) */}
           <div className="lg:col-span-7 space-y-6">
             
-            {/* Target Concept Form */}
-            <div className="bg-[#111] border border-zinc-900 p-6 rounded-lg space-y-5">
-              <div className="flex items-center justify-between">
+            {/* Custom Vértice Tab Selector */}
+            <div className="flex border-b border-zinc-900 gap-4 mb-2">
+              <button
+                onClick={() => setActiveTab("text")}
+                className={`pb-3 px-1 text-[10px] uppercase font-black tracking-widest border-b-2 transition-all cursor-pointer ${
+                  activeTab === "text"
+                    ? "border-[#00E5FF] text-white"
+                    : "border-transparent text-zinc-500 hover:text-zinc-300"
+                }`}
+              >
+                Criar de Texto / Prompt-to-3D
+              </button>
+              <button
+                onClick={() => setActiveTab("photo")}
+                className={`pb-3 px-1 text-[10px] uppercase font-black tracking-widest border-b-2 transition-all cursor-pointer flex items-center gap-1.5 ${
+                  activeTab === "photo"
+                    ? "border-[#00E5FF] text-white"
+                    : "border-transparent text-zinc-500 hover:text-zinc-300"
+                }`}
+              >
+                <Camera className="w-3.5 h-3.5" />
+                Foto para Boneco (Selfie 3D)
+              </button>
+            </div>
+
+            {/* FORMATO FÍSICO / PHYSICAL FORMAT SELECTOR */}
+            <div className="bg-[#111] border border-zinc-900 p-6 rounded-lg space-y-4">
+              <div>
                 <label className="text-[10px] uppercase text-[#00E5FF] font-black tracking-widest flex items-center">
-                  <span>01. Conceito do Personagem / Target Concept</span>
-                  <HelpTooltip text="Descreva o personagem que deseja gerar. Pode ser simples (ex: 'Orc com machado') e depois otimizado pelo modelo de linguagem." />
+                  <span>Escolha o Formato de Fabricação / Physical Format</span>
+                  <HelpTooltip text="Determine se a figura será uma estátua estática com riqueza de detalhes, um modelo com articulações flexíveis sensoriais, ou um mini chaveiro compacto." />
                 </label>
               </div>
 
-              <div className="space-y-4">
-                <input 
-                  value={prompt}
-                  onChange={(e) => setPrompt(e.target.value)}
-                  placeholder="Ex: guerreiro elfo arqueiro, armadura dourada, pose dinâmica..."
-                  className="w-full bg-transparent border-b border-zinc-800 outline-none text-xl font-mono text-white py-2 focus:border-[#00E5FF] transition-colors"
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter" && prompt) {
-                      handleOptimizePrompt();
-                    }
-                  }}
-                />
-
-                <div className="flex flex-wrap gap-3 pt-2">
-                  <button 
-                    onClick={handleOptimizePrompt} 
-                    disabled={isGenerating || !prompt}
-                    className="flex-1 bg-zinc-900 text-zinc-300 border border-zinc-800 font-bold uppercase text-[10px] py-3 px-6 tracking-widest hover:border-[#00E5FF] hover:text-white transition-all disabled:opacity-50 flex items-center justify-center gap-2 rounded cursor-pointer"
-                  >
-                    {isGenerating ? <Loader2 className="w-4 h-4 animate-spin text-[#00E5FF]" /> : <Sparkles className="w-4 h-4 text-[#00E5FF]" />}
-                    {isGenerating ? "Otimizando..." : "Otimizar Prompt (3D)"}
-                  </button>
-
-                  <button 
-                    onClick={() => handleGenerateImage()} 
-                    disabled={isGeneratingImage || !prompt}
-                    className="flex-1 bg-white text-black font-black uppercase text-[10px] py-3 px-6 tracking-widest hover:bg-[#00E5FF] hover:text-black transition-all disabled:opacity-50 flex items-center justify-center gap-2 rounded cursor-pointer"
-                  >
-                    {isGeneratingImage ? <Loader2 className="w-4 h-4 animate-spin" /> : <Image className="w-4 h-4" />}
-                    {isGeneratingImage ? "Renderizando..." : "Gerar Render Visual"}
-                  </button>
-                </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3">
+                {[
+                  {
+                    id: "statue",
+                    label: "Estátua Estática",
+                    desc: "Foco em detalhes. Montado em pedestal de exibição rígido.",
+                    icon: Layers,
+                    badge: "Colecionável",
+                    color: "border-zinc-800 hover:border-zinc-700 bg-[#0d0d0d]"
+                  },
+                  {
+                    id: "articulated",
+                    label: "Boneco Articulado",
+                    desc: "Articulações móveis (flexi). Brinquedo sensorial livre.",
+                    icon: Activity,
+                    badge: "Sensorial / Fidget",
+                    color: "border-zinc-800 hover:border-zinc-700 bg-[#0d0d0d]"
+                  },
+                  {
+                    id: "keychain",
+                    label: "Mini Chaveiro",
+                    desc: "Tamanho reduzido com olhal/anel de fixação superior na cabeça.",
+                    icon: Link,
+                    badge: "Compacto",
+                    color: "border-zinc-800 hover:border-zinc-700 bg-[#0d0d0d]"
+                  },
+                  {
+                    id: "articulated_keychain",
+                    label: "Chaveiro Articulado",
+                    desc: "Corpo flexível com articulações e anel superior integrado.",
+                    icon: Sparkles,
+                    badge: "Híbrido",
+                    color: "border-zinc-800 hover:border-zinc-700 bg-[#0d0d0d]"
+                  }
+                ].map((item) => {
+                  const Icon = item.icon;
+                  const isSelected = physicalFormat === item.id;
+                  return (
+                    <button
+                      key={item.id}
+                      type="button"
+                      onClick={() => setPhysicalFormat(item.id as any)}
+                      className={`text-left p-4 rounded-lg border transition-all cursor-pointer relative overflow-hidden flex flex-col justify-between min-h-[120px] ${
+                        isSelected
+                          ? "border-[#00E5FF] bg-gradient-to-br from-[#00E5FF]/10 to-transparent text-white"
+                          : item.color + " text-zinc-400"
+                      }`}
+                    >
+                      <div className="flex items-center justify-between w-full">
+                        <div className={`p-1.5 rounded-md ${isSelected ? "bg-[#00E5FF]/15 text-[#00E5FF]" : "bg-zinc-900 text-zinc-500"}`}>
+                          <Icon className="w-4 h-4" />
+                        </div>
+                        <span className={`text-[7px] font-black uppercase tracking-wider px-1.5 py-0.5 rounded ${
+                          isSelected ? "bg-[#00E5FF] text-black" : "bg-zinc-900 text-zinc-500"
+                        }`}>
+                          {item.badge}
+                        </span>
+                      </div>
+                      <div className="mt-3 space-y-1">
+                        <span className="text-[10px] font-black uppercase tracking-wider block">{item.label}</span>
+                        <span className="text-[8px] text-zinc-500 leading-relaxed font-medium block">{item.desc}</span>
+                      </div>
+                      {isSelected && (
+                        <div className="absolute top-1.5 right-1.5 w-1.5 h-1.5 rounded-full bg-[#00E5FF]" />
+                      )}
+                    </button>
+                  );
+                })}
               </div>
             </div>
 
-            {/* Presets and Custom Templates */}
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              {/* Recommended Presets */}
-              <div className="bg-[#111] border border-zinc-900 rounded-lg p-5 space-y-4">
-                <div className="flex items-center gap-2 border-b border-zinc-900 pb-3">
-                  <Bookmark className="w-4 h-4 text-[#00E5FF]" />
-                  <h3 className="text-[10px] font-bold uppercase tracking-wider text-zinc-300">Presets Recomendados</h3>
-                  <HelpTooltip text="Ideias prontas de figuras 3D otimizadas e testadas para você carregar de forma instantânea." />
-                </div>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
-                  {defaultTemplates.map((tpl) => (
-                    <button
-                      key={tpl.id}
-                      onClick={() => handleLoadTemplate(tpl.prompt)}
-                      className="text-left bg-[#0d0d0d] hover:bg-[#151515] border border-zinc-900 hover:border-[#00E5FF] p-3 rounded transition-all group flex flex-col justify-between h-20"
-                    >
-                      <span className="text-[9px] font-bold text-zinc-300 group-hover:text-[#00E5FF] transition-colors line-clamp-1 uppercase tracking-wide">
-                        {tpl.name}
-                      </span>
-                      <span className="text-[8px] text-zinc-600 line-clamp-2 mt-1 leading-relaxed font-mono">
-                        {tpl.prompt}
-                      </span>
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              {/* Saved Templates */}
-              <div className="bg-[#111] border border-[#1a1a1a] rounded-lg p-5 space-y-4 flex flex-col justify-between">
-                <div className="space-y-4">
-                  <div className="flex items-center justify-between border-b border-zinc-900 pb-3">
-                    <div className="flex items-center gap-2">
-                      <Save className="w-4 h-4 text-[#00E5FF]" />
-                      <h3 className="text-[10px] font-bold uppercase tracking-wider text-zinc-300">Meus Modelos / Templates</h3>
-                    </div>
-                    <span className="text-[8px] font-mono text-zinc-500 uppercase font-black">{savedTemplates.length} Salvos</span>
+            {activeTab === "text" ? (
+              <div className="space-y-6">
+                {/* Target Concept Form */}
+                <div className="bg-[#111] border border-zinc-900 p-6 rounded-lg space-y-5">
+                  <div className="flex items-center justify-between">
+                    <label className="text-[10px] uppercase text-[#00E5FF] font-black tracking-widest flex items-center">
+                      <span>01. Conceito do Personagem / Target Concept</span>
+                      <HelpTooltip text="Descreva o personagem que deseja gerar. Pode ser simples (ex: 'Orc com machado') e depois otimizado pelo modelo de linguagem." />
+                    </label>
                   </div>
 
-                  {/* Save current template form */}
-                  <form onSubmit={handleSaveTemplate} className="space-y-2">
-                    <div className="flex gap-2">
-                      <input
-                        type="text"
-                        value={newTemplateName}
-                        onChange={(e) => setNewTemplateName(e.target.value)}
-                        placeholder="Nome personalizado..."
-                        disabled={!prompt.trim()}
-                        className="flex-1 bg-[#0d0d0d] border border-zinc-900 focus:border-[#00E5FF] text-xs text-white rounded px-3 py-2 outline-none transition-all disabled:opacity-50"
-                      />
-                      <button
-                        type="submit"
-                        disabled={!prompt.trim() || !newTemplateName.trim()}
-                        className="px-3 py-2 bg-[#00E5FF] text-black text-[9px] font-black uppercase tracking-wider rounded hover:bg-[#00B4CC] disabled:opacity-50 disabled:bg-zinc-900 disabled:text-zinc-600 transition-all cursor-pointer shrink-0 flex items-center gap-1"
+                  <div className="space-y-4">
+                    <input 
+                      value={prompt}
+                      onChange={(e) => setPrompt(e.target.value)}
+                      placeholder="Ex: guerreiro elfo arqueiro, armadura dourada, pose dinâmica..."
+                      className="w-full bg-transparent border-b border-zinc-800 outline-none text-xl font-mono text-white py-2 focus:border-[#00E5FF] transition-colors"
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter" && prompt) {
+                          handleOptimizePrompt();
+                        }
+                      }}
+                    />
+
+                    <div className="flex flex-wrap gap-3 pt-2">
+                      <button 
+                        onClick={handleOptimizePrompt} 
+                        disabled={isGenerating || !prompt}
+                        className="flex-1 bg-zinc-900 text-zinc-300 border border-zinc-800 font-bold uppercase text-[10px] py-3 px-6 tracking-widest hover:border-[#00E5FF] hover:text-white transition-all disabled:opacity-50 flex items-center justify-center gap-2 rounded cursor-pointer"
                       >
-                        {saveSuccess ? <Check className="w-3.5 h-3.5" /> : <Plus className="w-3.5 h-3.5" />}
-                        {saveSuccess ? "Salvo" : "Salvar"}
+                        {isGenerating ? <Loader2 className="w-4 h-4 animate-spin text-[#00E5FF]" /> : <Sparkles className="w-4 h-4 text-[#00E5FF]" />}
+                        {isGenerating ? "Otimizando..." : "Otimizar Prompt (3D)"}
+                      </button>
+
+                      <button 
+                        onClick={() => handleGenerateImage()} 
+                        disabled={isGeneratingImage || !prompt}
+                        className="flex-1 bg-white text-black font-black uppercase text-[10px] py-3 px-6 tracking-widest hover:bg-[#00E5FF] hover:text-black transition-all disabled:opacity-50 flex items-center justify-center gap-2 rounded cursor-pointer"
+                      >
+                        {isGeneratingImage ? <Loader2 className="w-4 h-4 animate-spin" /> : <Image className="w-4 h-4" />}
+                        {isGeneratingImage ? "Renderizando..." : "Gerar Render Visual"}
                       </button>
                     </div>
-                  </form>
+                  </div>
+                </div>
 
-                  {/* List of custom templates */}
-                  <div className="max-h-[100px] overflow-y-auto space-y-2 pr-1 scrollbar-thin scrollbar-thumb-zinc-800 scrollbar-track-transparent">
-                    {savedTemplates.length === 0 ? (
-                      <div className="text-center py-5 text-zinc-600 text-[8px] uppercase font-black tracking-widest border border-dashed border-zinc-900 rounded">
-                        Sem templates salvos
-                      </div>
-                    ) : (
-                      savedTemplates.map((tpl) => (
-                        <div
+                {/* Presets and Custom Templates */}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  {/* Recommended Presets */}
+                  <div className="bg-[#111] border border-zinc-900 rounded-lg p-5 space-y-4">
+                    <div className="flex items-center gap-2 border-b border-zinc-900 pb-3">
+                      <Bookmark className="w-4 h-4 text-[#00E5FF]" />
+                      <h3 className="text-[10px] font-bold uppercase tracking-wider text-zinc-300">Presets Recomendados</h3>
+                      <HelpTooltip text="Ideias prontas de figuras 3D otimizadas e testadas para você carregar de forma instantânea." />
+                    </div>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                      {defaultTemplates.map((tpl) => (
+                        <button
                           key={tpl.id}
-                          className="bg-[#0d0d0d] border border-zinc-900 rounded p-2 flex items-center justify-between gap-3 group hover:border-zinc-800 transition-all"
+                          onClick={() => handleLoadTemplate(tpl.prompt)}
+                          className="text-left bg-[#0d0d0d] hover:bg-[#151515] border border-zinc-900 hover:border-[#00E5FF] p-3 rounded transition-all group flex flex-col justify-between h-20"
                         >
+                          <span className="text-[9px] font-bold text-zinc-300 group-hover:text-[#00E5FF] transition-colors line-clamp-1 uppercase tracking-wide">
+                            {tpl.name}
+                          </span>
+                          <span className="text-[8px] text-zinc-600 line-clamp-2 mt-1 leading-relaxed font-mono">
+                            {tpl.prompt}
+                          </span>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Saved Templates */}
+                  <div className="bg-[#111] border border-[#1a1a1a] rounded-lg p-5 space-y-4 flex flex-col justify-between">
+                    <div className="space-y-4">
+                      <div className="flex items-center justify-between border-b border-zinc-900 pb-3">
+                        <div className="flex items-center gap-2">
+                          <Save className="w-4 h-4 text-[#00E5FF]" />
+                          <h3 className="text-[10px] font-bold uppercase tracking-wider text-zinc-300">Meus Modelos / Templates</h3>
+                        </div>
+                        <span className="text-[8px] font-mono text-zinc-500 uppercase font-black">{savedTemplates.length} Salvos</span>
+                      </div>
+
+                      {/* Save current template form */}
+                      <form onSubmit={handleSaveTemplate} className="space-y-2">
+                        <div className="flex gap-2">
+                          <input
+                            type="text"
+                            value={newTemplateName}
+                            onChange={(e) => setNewTemplateName(e.target.value)}
+                            placeholder="Nome personalizado..."
+                            disabled={!prompt.trim()}
+                            className="flex-1 bg-[#0d0d0d] border border-zinc-900 focus:border-[#00E5FF] text-xs text-white rounded px-3 py-2 outline-none transition-all disabled:opacity-50"
+                          />
                           <button
-                            onClick={() => handleLoadTemplate(tpl.prompt)}
-                            className="flex-1 text-left min-w-0"
+                            type="submit"
+                            disabled={!prompt.trim() || !newTemplateName.trim()}
+                            className="px-3 py-2 bg-[#00E5FF] text-black text-[9px] font-black uppercase tracking-wider rounded hover:bg-[#00B4CC] disabled:opacity-50 disabled:bg-zinc-900 disabled:text-zinc-600 transition-all cursor-pointer shrink-0 flex items-center gap-1"
                           >
-                            <div className="text-[9px] font-bold text-zinc-400 group-hover:text-[#00E5FF] transition-colors truncate">
-                              {tpl.name}
-                            </div>
-                            <div className="text-[8px] text-zinc-600 truncate font-mono">
-                              {tpl.prompt}
-                            </div>
-                          </button>
-                          <button
-                            onClick={() => handleDeleteTemplate(tpl.id)}
-                            className="p-1 text-zinc-600 hover:text-[#FF1744] hover:bg-[#FF1744]/10 rounded transition-all shrink-0"
-                            title="Excluir"
-                          >
-                            <Trash2 className="w-3 h-3" />
+                            {saveSuccess ? <Check className="w-3.5 h-3.5" /> : <Plus className="w-3.5 h-3.5" />}
+                            {saveSuccess ? "Salvo" : "Salvar"}
                           </button>
                         </div>
-                      ))
+                      </form>
+
+                      {/* List of custom templates */}
+                      <div className="max-h-[100px] overflow-y-auto space-y-2 pr-1 scrollbar-thin scrollbar-thumb-zinc-800 scrollbar-track-transparent">
+                        {savedTemplates.length === 0 ? (
+                          <div className="text-center py-5 text-zinc-600 text-[8px] uppercase font-black tracking-widest border border-dashed border-zinc-900 rounded">
+                            Sem templates salvos
+                          </div>
+                        ) : (
+                          savedTemplates.map((tpl) => (
+                            <div
+                              key={tpl.id}
+                              className="bg-[#0d0d0d] border border-zinc-900 rounded p-2 flex items-center justify-between gap-3 group hover:border-zinc-800 transition-all"
+                            >
+                              <button
+                                onClick={() => handleLoadTemplate(tpl.prompt)}
+                                className="flex-1 text-left min-w-0"
+                              >
+                                <div className="text-[9px] font-bold text-zinc-400 group-hover:text-[#00E5FF] transition-colors truncate">
+                                  {tpl.name}
+                                </div>
+                                <div className="text-[8px] text-zinc-600 truncate font-mono">
+                                  {tpl.prompt}
+                                </div>
+                              </button>
+                              <button
+                                onClick={() => handleDeleteTemplate(tpl.id)}
+                                className="p-1 text-zinc-600 hover:text-[#FF1744] hover:bg-[#FF1744]/10 rounded transition-all shrink-0"
+                                title="Excluir"
+                              >
+                                <Trash2 className="w-3 h-3" />
+                              </button>
+                            </div>
+                          ))
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            ) : (
+              <div className="space-y-6 animate-fadeIn">
+                {/* Upload block */}
+                <div className="bg-[#111] border border-zinc-900 p-6 rounded-lg space-y-5">
+                  <div>
+                    <label className="text-[10px] uppercase text-[#00E5FF] font-black tracking-widest flex items-center">
+                      <span>01. Carregar Sua Foto / Upload Photo</span>
+                      <HelpTooltip text="Arraste ou selecione uma foto sua de rosto ou corpo inteiro. O modelo analisará seus traços, roupas e acessórios para estilizá-lo em miniatura." />
+                    </label>
+                  </div>
+
+                  <div 
+                    onDragEnter={handleDrag}
+                    onDragOver={handleDrag}
+                    onDragLeave={handleDrag}
+                    onDrop={handleDrop}
+                    className={`border-2 border-dashed rounded-lg p-8 flex flex-col items-center justify-center text-center transition-all min-h-[180px] ${
+                      isDragActive 
+                        ? "border-[#00E5FF] bg-[#00E5FF]/5" 
+                        : uploadedImage 
+                          ? "border-zinc-800 bg-zinc-950/40" 
+                          : "border-zinc-850 hover:border-zinc-750 bg-[#0c0c0c]"
+                    }`}
+                  >
+                    {uploadedImage ? (
+                      <div className="space-y-4 w-full flex flex-col items-center">
+                        <div className="relative group w-32 h-32 rounded-lg overflow-hidden border border-zinc-800 shadow-2xl">
+                          <img 
+                            src={uploadedImage} 
+                            alt="Sua foto de referência" 
+                            className="w-full h-full object-cover"
+                          />
+                          <button
+                            onClick={() => { setUploadedImage(null); setAnalysisResult(""); }}
+                            className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center text-xs font-bold text-red-400 cursor-pointer"
+                          >
+                            Remover
+                          </button>
+                        </div>
+                        <p className="text-[9px] text-zinc-500 font-mono">Foto carregada com sucesso. Pronto para modelagem!</p>
+                      </div>
+                    ) : (
+                      <label className="cursor-pointer flex flex-col items-center justify-center space-y-3.5 w-full h-full py-4">
+                        <div className="w-12 h-12 rounded-full bg-zinc-950 border border-zinc-900 flex items-center justify-center text-zinc-500 hover:text-[#00E5FF] hover:border-[#00E5FF] transition-all">
+                          <Upload className="w-5 h-5" />
+                        </div>
+                        <div className="space-y-1">
+                          <p className="text-[10px] text-zinc-300 font-bold uppercase tracking-wider">Arraste e solte ou clique para fazer upload</p>
+                          <p className="text-[9px] text-zinc-600 font-medium">Formatos aceitos: JPG, PNG, WEBP de até 10MB</p>
+                        </div>
+                        <input 
+                          type="file" 
+                          accept="image/*" 
+                          onChange={(e) => {
+                            if (e.target.files && e.target.files[0]) {
+                              handleImageUpload(e.target.files[0]);
+                            }
+                          }}
+                          className="hidden" 
+                        />
+                      </label>
                     )}
                   </div>
                 </div>
+
+                {/* Style selector */}
+                <div className="bg-[#111] border border-zinc-900 p-6 rounded-lg space-y-5">
+                  <div>
+                    <label className="text-[10px] uppercase text-[#00E5FF] font-black tracking-widest flex items-center">
+                      <span>02. Escolha o Estilo do Seu Bonequinho / Miniature Style</span>
+                      <HelpTooltip text="Selecione o tema/estilo para a estátua 3D resultante da sua foto." />
+                    </label>
+                  </div>
+
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                    {[
+                      { id: "rpg", label: "RPG Fantasia", desc: "Guerreiro, mago, bardo", color: "from-purple-500/20 to-indigo-500/10" },
+                      { id: "chibi", label: "Chibi Fofo", desc: "Mini-fofo e estilizado", color: "from-pink-500/20 to-rose-500/10" },
+                      { id: "cyberpunk", label: "Cyberpunk", desc: "Futurista e high-tech", color: "from-cyan-500/20 to-blue-500/10" },
+                      { id: "classic", label: "Clássico", desc: "Estátua de mármore", color: "from-amber-500/20 to-orange-500/10" }
+                    ].map((st) => (
+                      <button
+                        key={st.id}
+                        type="button"
+                        onClick={() => setSelectedStyle(st.id as any)}
+                        className={`text-left p-4 rounded-lg border transition-all cursor-pointer relative overflow-hidden flex flex-col justify-between h-24 bg-[#0d0d0d] bg-gradient-to-br ${st.color} ${
+                          selectedStyle === st.id 
+                            ? "border-[#00E5FF] shadow-[0_0_15px_rgba(0,229,255,0.15)] text-white" 
+                            : "border-zinc-900 text-zinc-400 hover:border-zinc-800"
+                        }`}
+                      >
+                        <span className="text-[10px] font-black uppercase tracking-wider">{st.label}</span>
+                        <span className="text-[8px] text-zinc-500 leading-relaxed font-medium">{st.desc}</span>
+                        {selectedStyle === st.id && (
+                          <div className="absolute top-2 right-2 w-1.5 h-1.5 rounded-full bg-[#00E5FF]" />
+                        )}
+                      </button>
+                    ))}
+                  </div>
+
+                  <div className="pt-2">
+                    <button
+                      type="button"
+                      onClick={handleAnalyzeImage}
+                      disabled={isAnalyzingImage || !uploadedImage}
+                      className="w-full bg-white text-black font-black uppercase text-[10px] py-3.5 px-6 tracking-widest hover:bg-[#00E5FF] hover:text-black transition-all disabled:opacity-50 flex items-center justify-center gap-2 rounded cursor-pointer"
+                    >
+                      {isAnalyzingImage ? (
+                        <Loader2 className="w-4 h-4 animate-spin text-black" />
+                      ) : (
+                        <Sparkles className="w-4 h-4 text-black" />
+                      )}
+                      {isAnalyzingImage ? "Analisando Traços & Renderizando..." : "Analisar Foto e Criar Bonequinho"}
+                    </button>
+                  </div>
+                </div>
+
+                {/* Analysis result */}
+                {analysisResult && (
+                  <div className="bg-[#111] border border-zinc-850 p-6 rounded-lg space-y-4">
+                    <div className="flex items-center gap-2 border-b border-zinc-900 pb-3">
+                      <Camera className="w-4 h-4 text-[#00E5FF]" />
+                      <h3 className="text-[10px] font-bold uppercase tracking-wider text-zinc-300 font-mono">Avatar Traduzido em 3D:</h3>
+                    </div>
+                    <p className="text-xs text-zinc-400 leading-relaxed font-sans font-medium">
+                      {analysisResult}
+                    </p>
+                  </div>
+                )}
               </div>
-            </div>
+            )}
 
             {/* Error container */}
             {error && (
