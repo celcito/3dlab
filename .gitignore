@@ -10,5 +10,5 @@ coverage/
 tmp/jobs/
 python/venv/
 __pycache__/
- examples/
+examples/
 .venv/
