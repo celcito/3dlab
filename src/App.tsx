@@ -4,11 +4,12 @@
  */
 
 import { BrowserRouter, Routes, Route, Link, useLocation } from "react-router-dom";
-import { Brush, Cuboid, BoxSelect, Calculator } from "lucide-react";
+import { Brush, Cuboid, BoxSelect, Calculator, Megaphone } from "lucide-react";
 import PaintMixer from "./pages/PaintMixer";
 import AiFigures from "./pages/AiFigures";
 import Viewer3D from "./pages/Viewer3D";
 import PriceCalculator from "./pages/PriceCalculator";
+import MarketingGenerator from "./pages/MarketingGenerator";
 
 function NavItem({ to, icon: Icon, label, description }: { to: string; icon: any; label: string; description: string }) {
   const location = useLocation();
@@ -55,6 +56,7 @@ function Layout({ children }: { children: React.ReactNode }) {
           <NavItem to="/paint-mixer" icon={Brush} label="Misturador de Tintas" description="Paint Color Mixer" />
           <NavItem to="/ai-figures" icon={Cuboid} label="Gerador de Figuras" description="AI Character Figures" />
           <NavItem to="/price-calculator" icon={Calculator} label="Calculadora de Preços" description="Price Calculator" />
+          <NavItem to="/marketing-generator" icon={Megaphone} label="Gerador de Marketing" description="Product Marketing" />
         </div>
       </nav>
       
@@ -75,6 +77,7 @@ export default function App() {
           <Route path="/paint-mixer" element={<PaintMixer />} />
           <Route path="/ai-figures" element={<AiFigures />} />
           <Route path="/price-calculator" element={<PriceCalculator />} />
+          <Route path="/marketing-generator" element={<MarketingGenerator />} />
         </Routes>
       </Layout>
     </BrowserRouter>

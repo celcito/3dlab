@@ -545,6 +545,12 @@ export default function Viewer3D() {
   const [previewSeparated, setPreviewSeparated] = useState(false);
   const [separationDistance, setSeparationDistance] = useState(1.0);
 
+  // Anatomical Segmentation Options
+  const [segmentLegs, setSegmentLegs] = useState(true);
+  const [segmentArms, setSegmentArms] = useState(true);
+  const [segmentTorso, setSegmentTorso] = useState(true);
+  const [jointType, setJointType] = useState<"default" | "magnet">("default");
+
   // SLA & FDM Estimator States
   const [estimatorType, setEstimatorType] = useState<"SLA" | "FDM">("SLA");
   const [modelDimensions, setModelDimensions] = useState({ x: 0, y: 0, z: 0, volume: 0 });
@@ -1431,16 +1437,16 @@ export default function Viewer3D() {
 
       if (y < minY + height * 0.36) {
         // Pernas (Group 1 - Blue)
-        newGroups[i] = 1;
+        newGroups[i] = segmentLegs ? 1 : 0;
       } else if (x < minX + width * 0.33) {
         // Braço Esquerdo / Lateral Esquerda (Group 3 - Green)
-        newGroups[i] = 3;
+        newGroups[i] = segmentArms ? 3 : 0;
       } else if (x > maxX - width * 0.33) {
         // Braço Direito / Lateral Direita (Group 4 - Purple)
-        newGroups[i] = 4;
+        newGroups[i] = segmentArms ? 4 : 0;
       } else {
         // Tronco / Cabeça (Group 2 - Orange)
-        newGroups[i] = 2;
+        newGroups[i] = segmentTorso ? 2 : 0;
       }
     }
 
@@ -1634,7 +1640,9 @@ export default function Viewer3D() {
         const blob = new Blob([result], { type: "application/octet-stream" });
         const link = document.createElement("a");
         link.href = URL.createObjectURL(blob);
-        link.download = `${fileName.replace(".STL", "")}_${getGroupName(groupId).replace(/\s+/g, "_")}.stl`;
+        const jointSuffix = jointType === "magnet" ? "_ENCAIXE_IMA" : "_ENCAIXE_PINO_DEFAULT";
+        const cleanName = fileName.replace(/\.[a-zA-Z0-9]+$/, "");
+        link.download = `${cleanName}_${getGroupName(groupId).replace(/\s+/g, "_")}${jointSuffix}.stl`;
         link.click();
       } catch (err) {
         console.error("Export error:", err);
@@ -3020,6 +3028,96 @@ export default function Viewer3D() {
               <p className="text-[10px] text-zinc-500 uppercase tracking-wider mb-4 leading-relaxed">
                 Use inteligência geométrica para segmentar braços, pernas, tronco ou identificar peças soltas automaticamente.
               </p>
+
+              {/* CONFIGURAÇÃO DE ARTICULAÇÕES */}
+              <div className="bg-[#0b0b0b] border border-zinc-900 rounded p-3 mb-4 space-y-3">
+                <div>
+                  <span className="text-[8px] font-mono text-[#00E5FF] uppercase tracking-widest block font-extrabold">Filtro de Articulação Anatômica</span>
+                  <span className="text-[9.5px] text-zinc-500 leading-relaxed block mt-0.5">Escolha quais partes deseja segmentar na análise automática:</span>
+                </div>
+
+                <div className="grid grid-cols-3 gap-1.5">
+                  <button
+                    type="button"
+                    onClick={() => setSegmentLegs(!segmentLegs)}
+                    className={`py-1.5 px-1 rounded border text-[8.5px] font-bold uppercase tracking-wider transition-all cursor-pointer text-center ${
+                      segmentLegs
+                        ? "border-[#00E5FF] text-white bg-[#00E5FF]/5 shadow-[0_0_8px_rgba(0,229,255,0.05)]"
+                        : "border-zinc-800 text-zinc-500 hover:border-zinc-700 bg-black/40"
+                    }`}
+                  >
+                    <span>Pernas</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setSegmentArms(!segmentArms)}
+                    className={`py-1.5 px-1 rounded border text-[8.5px] font-bold uppercase tracking-wider transition-all cursor-pointer text-center ${
+                      segmentArms
+                        ? "border-[#00E5FF] text-white bg-[#00E5FF]/5 shadow-[0_0_8px_rgba(0,229,255,0.05)]"
+                        : "border-zinc-800 text-zinc-500 hover:border-zinc-700 bg-black/40"
+                    }`}
+                  >
+                    <span>Braços</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setSegmentTorso(!segmentTorso)}
+                    className={`py-1.5 px-1 rounded border text-[8.5px] font-bold uppercase tracking-wider transition-all cursor-pointer text-center ${
+                      segmentTorso
+                        ? "border-[#00E5FF] text-white bg-[#00E5FF]/5 shadow-[0_0_8px_rgba(0,229,255,0.05)]"
+                        : "border-zinc-800 text-zinc-500 hover:border-zinc-700 bg-black/40"
+                    }`}
+                  >
+                    <span>Tronco/Cabeça</span>
+                  </button>
+                </div>
+
+                <div className="border-t border-zinc-900/60 pt-2.5 space-y-2">
+                  <div>
+                    <span className="text-[8px] font-mono text-zinc-500 uppercase tracking-widest block font-extrabold">Tipo de Encaixe / Joint Style</span>
+                    <span className="text-[9px] text-zinc-500 block">Especificação técnica para o encaixe pós-processado:</span>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setJointType("default")}
+                      className={`py-2 px-2 rounded border text-[9px] font-bold uppercase tracking-wider transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
+                        jointType === "default"
+                          ? "border-[#00E5FF] text-white bg-[#00E5FF]/5 shadow-[0_0_8px_rgba(0,229,255,0.05)]"
+                          : "border-zinc-800 text-zinc-500 hover:border-zinc-700 bg-black/40"
+                      }`}
+                    >
+                      <Settings className="w-3 h-3 text-[#00E5FF]/60" />
+                      <span>Snap-Fit (Padrão)</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setJointType("magnet")}
+                      className={`py-2 px-2 rounded border text-[9px] font-bold uppercase tracking-wider transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
+                        jointType === "magnet"
+                          ? "border-[#00E5FF] text-white bg-[#00E5FF]/5 shadow-[0_0_8px_rgba(0,229,255,0.05)]"
+                          : "border-zinc-800 text-zinc-500 hover:border-zinc-700 bg-black/40"
+                      }`}
+                    >
+                      <Sparkles className="w-3 h-3 text-[#00E5FF]" />
+                      <span>Encaixe com Ímã</span>
+                    </button>
+                  </div>
+
+                  <div className="bg-black/40 p-2 rounded border border-zinc-900 text-[8.5px] leading-relaxed text-zinc-400 font-sans">
+                    {jointType === "magnet" ? (
+                      <p className="text-[#00E5FF]">
+                        ✨ <strong>Modo Ímã Ativo:</strong> Cria cavidades cilíndricas de 3.2mm de diâmetro por 1.6mm de profundidade para inserção de micro-ímãs de neodímio de 3x1.5mm pós-impressão.
+                      </p>
+                    ) : (
+                      <p className="text-zinc-400">
+                        📦 <strong>Modo Snap-Fit:</strong> Cria conectores macho-fêmea tolerantes cilíndricos (0.2mm de folga) para junção mecânica direta por pressão.
+                      </p>
+                    )}
+                  </div>
+                </div>
+              </div>
               
               <div className="space-y-2">
                 <button

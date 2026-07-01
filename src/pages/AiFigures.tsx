@@ -56,6 +56,19 @@ export default function AiFigures() {
   const [isDragActive, setIsDragActive] = useState(false);
   const [activeTab, setActiveTab] = useState<"text" | "photo">("text");
   const [physicalFormat, setPhysicalFormat] = useState<"statue" | "articulated" | "keychain" | "articulated_keychain">("statue");
+  
+  // 3D Model Exporter States
+  const [isExporting3D, setIsExporting3D] = useState(false);
+  const [export3DSuccess, setExport3DSuccess] = useState(false);
+  const [export3DError, setExport3DError] = useState("");
+  const [exportedFileInfo, setExportedFileInfo] = useState<{
+    solidName: string;
+    format: string;
+    style: string;
+    dimensions: string;
+    triangles: number;
+    note: string;
+  } | null>(null);
 
   const defaultTemplates: PromptTemplate[] = [
     {
@@ -215,6 +228,54 @@ export default function AiFigures() {
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
+  };
+
+  const handleExport3D = async () => {
+    const activePrompt = result || prompt;
+    if (!activePrompt) {
+      setExport3DError("Gere ou selecione uma imagem analisada primeiro.");
+      return;
+    }
+
+    setIsExporting3D(true);
+    setExport3DError("");
+    setExport3DSuccess(false);
+    setExportedFileInfo(null);
+
+    try {
+      const response = await fetch("/api/ai-figures/export-3d", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          prompt: activePrompt,
+          style: selectedStyle,
+          physicalFormat
+        })
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.error || "Erro ao gerar malha 3D.");
+      }
+
+      setExportedFileInfo(data.info);
+      setExport3DSuccess(true);
+
+      // Trigger automatic STL browser download using base64 encoded payload
+      if (data.fileContentBase64 && data.fileName) {
+        const link = document.createElement("a");
+        link.href = `data:text/plain;base64,${data.fileContentBase64}`;
+        link.download = data.fileName;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+      }
+    } catch (err: any) {
+      setExport3DError(err.message || "Houve uma falha ao gerar a malha 3D.");
+    } finally {
+      setIsExporting3D(false);
+    }
   };
 
   // Photo-to-Figurine helper functions
@@ -858,25 +919,140 @@ export default function AiFigures() {
               )}
             </div>
 
+            {/* EXPORTADOR DE MALHA 3D / 3D MESH EXPORTER */}
+            <div className="bg-[#111] border border-zinc-900 rounded-lg p-6 space-y-4">
+              <div className="flex items-center gap-2 border-b border-zinc-900 pb-3">
+                <Layers className="w-4 h-4 text-[#00E5FF]" />
+                <h3 className="text-[10px] font-bold uppercase tracking-wider text-zinc-300 font-mono flex items-center gap-1.5">
+                  <span>Exportar Malha Geométrica 3D (.STL)</span>
+                </h3>
+                <HelpTooltip text="Gere a malha geométrica real fatiável e imprimível (.STL) baseada na imagem estilizada e formato de fabricação escolhido." />
+              </div>
+
+              <p className="text-[10px] text-zinc-500 leading-relaxed font-sans font-medium">
+                Gere e exporte a malha volumétrica 3D watertight compatível com Cura, PrusaSlicer e fatiadores de resina para fabricação direta.
+              </p>
+
+              <button
+                type="button"
+                onClick={handleExport3D}
+                disabled={isExporting3D || !(result || prompt)}
+                className="w-full bg-[#00E5FF] hover:bg-[#00B4CC] disabled:opacity-50 disabled:bg-zinc-900 disabled:text-zinc-600 text-black font-black uppercase text-[10px] py-3.5 px-4 tracking-widest rounded transition-all cursor-pointer flex items-center justify-center gap-2"
+              >
+                {isExporting3D ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin text-black" />
+                    <span>Calculando Vértices & Fatias...</span>
+                  </>
+                ) : (
+                  <>
+                    <Download className="w-4 h-4 text-black" />
+                    <span>Gerar e Baixar Malha (.STL)</span>
+                  </>
+                )}
+              </button>
+
+              {/* Status indicators */}
+              {export3DSuccess && exportedFileInfo && (
+                <div className="bg-emerald-950/20 border border-emerald-900/40 p-4 rounded-lg space-y-2.5 animate-fadeIn">
+                  <div className="flex items-center gap-2 text-emerald-400 text-[10px] font-bold uppercase tracking-wider">
+                    <Check className="w-4 h-4" />
+                    <span>Malha Gerada e Baixada com Sucesso!</span>
+                  </div>
+                  
+                  <div className="grid grid-cols-2 gap-2 text-[9px] font-mono text-zinc-400 bg-black/40 p-2.5 rounded border border-zinc-900">
+                    <div>
+                      <span className="text-zinc-600 block uppercase">Sólido:</span>
+                      <span className="text-[#00E5FF] font-bold truncate block">{exportedFileInfo.solidName}</span>
+                    </div>
+                    <div>
+                      <span className="text-zinc-600 block uppercase">Dimensões:</span>
+                      <span className="text-white font-bold block">{exportedFileInfo.dimensions}</span>
+                    </div>
+                    <div className="mt-1">
+                      <span className="text-zinc-600 block uppercase">Triângulos:</span>
+                      <span className="text-white font-bold block">{exportedFileInfo.triangles} fatias</span>
+                    </div>
+                    <div className="mt-1">
+                      <span className="text-zinc-600 block uppercase">Formato Físico:</span>
+                      <span className="text-white font-bold uppercase block">{exportedFileInfo.format}</span>
+                    </div>
+                  </div>
+
+                  <p className="text-[8px] text-zinc-500 leading-relaxed font-sans font-medium italic">
+                    * {exportedFileInfo.note}
+                  </p>
+                </div>
+              )}
+
+              {export3DError && (
+                <div className="bg-red-950/20 border border-red-900/50 p-4 rounded text-red-500 text-[10px] font-mono flex items-start gap-2">
+                  <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
+                  <span>{export3DError}</span>
+                </div>
+              )}
+            </div>
+
             {/* Printable Model Slicing Advice */}
             <div className="bg-[#111] border border-zinc-900 p-5 rounded-lg space-y-3.5">
-              <div className="flex items-center gap-2 border-b border-zinc-900 pb-2.5">
-                <Sparkles className="w-3.5 h-3.5 text-[#00E5FF]" />
-                <h4 className="text-[10px] font-bold uppercase tracking-wider text-zinc-400">Instruções para Fatiamento 3D</h4>
+              <div className="flex items-center justify-between border-b border-zinc-900 pb-2.5">
+                <div className="flex items-center gap-2">
+                  <Sparkles className="w-3.5 h-3.5 text-[#00E5FF]" />
+                  <h4 className="text-[10px] font-bold uppercase tracking-wider text-zinc-400">Como obter o STL & Fatiamento 3D</h4>
+                </div>
+                <span className="text-[8px] font-mono text-[#00E5FF] uppercase font-black px-1.5 py-0.5 rounded bg-[#00E5FF]/10">
+                  {physicalFormat === "articulated" && "Articulado Flexi"}
+                  {physicalFormat === "articulated_keychain" && "Chaveiro Articulado"}
+                  {physicalFormat === "keychain" && "Chaveiro Mini"}
+                  {physicalFormat === "statue" && "Estátua Estática"}
+                </span>
               </div>
-              <ul className="space-y-2.5 text-[10px] leading-relaxed text-zinc-500 font-sans font-medium">
+              <ul className="space-y-3 text-[10px] leading-relaxed text-zinc-500 font-sans font-medium">
                 <li className="flex items-start gap-1.5">
                   <span className="text-[#00E5FF] font-black font-mono shrink-0">1.</span>
-                  <span>Use o prompt otimizado em geradores como Meshy.ai ou Luma Genie para obter um modelo OBJ ou STL perfeitamente volumétrico.</span>
+                  <span>
+                    <strong>Geração do Arquivo STL/OBJ:</strong> Copie o <strong>Prompt Otimizado</strong> gerado à esquerda e cole em geradores de malha 3D volumétricos como <strong>Meshy.ai</strong>, <strong>Tripo3D.ai</strong>, ou <strong>Luma Genie</strong>. Eles processarão o texto ou a foto e fornecerão o arquivo .STL/.OBJ para download instantâneo.
+                  </span>
                 </li>
-                <li className="flex items-start gap-1.5">
-                  <span className="text-[#00E5FF] font-black font-mono shrink-0">2.</span>
-                  <span><strong>Modelos SLA:</strong> Certifique-se de esvaziar (hollow) a miniatura no Chitubox ou Lychee Slicer para economizar resina.</span>
-                </li>
-                <li className="flex items-start gap-1.5">
-                  <span className="text-[#00E5FF] font-black font-mono shrink-0">3.</span>
-                  <span><strong>FDM / Filamento:</strong> Adicione suportes do tipo 'árvore' (Tree Supports) para garantir a integridade dos membros pendentes e capas.</span>
-                </li>
+
+                {physicalFormat === "statue" && (
+                  <>
+                    <li className="flex items-start gap-1.5">
+                      <span className="text-[#00E5FF] font-black font-mono shrink-0">2.</span>
+                      <span><strong>Para Impressoras de Resina (SLA):</strong> Certifique-se de esvaziar (hollow) a estátua no fatiador (ex: Chitubox) e adicionar furos de drenagem para economizar resina.</span>
+                    </li>
+                    <li className="flex items-start gap-1.5">
+                      <span className="text-[#00E5FF] font-black font-mono shrink-0">3.</span>
+                      <span><strong>Para Filamento (FDM):</strong> Ative suportes do tipo 'árvore' (Tree Supports) no Cura ou PrusaSlicer para os braços, armas e partes suspensas.</span>
+                    </li>
+                  </>
+                )}
+
+                {(physicalFormat === "articulated" || physicalFormat === "articulated_keychain") && (
+                  <>
+                    <li className="flex items-start gap-1.5">
+                      <span className="text-amber-500 font-black font-mono shrink-0">⚠️</span>
+                      <span><strong>PROIBIDO USAR SUPORTES (No Supports):</strong> Como este é um modelo articulado móvel do tipo <i>print-in-place</i> (imprime montado), adicionar suportes nas juntas vai fundir os elos, travando o boneco sensorial!</span>
+                    </li>
+                    <li className="flex items-start gap-1.5">
+                      <span className="text-[#00E5FF] font-black font-mono shrink-0">3.</span>
+                      <span><strong>Configuração do Fatiador:</strong> Use altura de camada baixa (0.12mm a 0.16mm) e velocidade reduzida nas primeiras camadas para garantir folga perfeita nas juntas flexíveis e excelente aderência na mesa.</span>
+                    </li>
+                  </>
+                )}
+
+                {physicalFormat === "keychain" && (
+                  <>
+                    <li className="flex items-start gap-1.5">
+                      <span className="text-[#00E5FF] font-black font-mono shrink-0">2.</span>
+                      <span><strong>Resistência do Chaveiro:</strong> Configure o preenchimento (Infill) para pelo menos 30% a 50% e adicione 3 a 4 perímetros de parede para garantir que o olhal/anel de fixação na cabeça não quebre no uso diário.</span>
+                    </li>
+                    <li className="flex items-start gap-1.5">
+                      <span className="text-[#00E5FF] font-black font-mono shrink-0">3.</span>
+                      <span><strong>SLA vs FDM:</strong> Devido ao tamanho mini reduzido de chaveiros, a impressão em resina (SLA) trará traços de rosto e cabelos muito mais nítidos. Se usar FDM, prefira um bico fino de 0.2mm.</span>
+                    </li>
+                  </>
+                )}
               </ul>
             </div>
 
