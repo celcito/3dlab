@@ -4,12 +4,14 @@
  */
 
 import { BrowserRouter, Routes, Route, Link, useLocation } from "react-router-dom";
-import { Brush, Cuboid, BoxSelect, Calculator, Megaphone } from "lucide-react";
+import { Brush, Cuboid, BoxSelect, Calculator, Megaphone, Sparkles, Scissors } from "lucide-react";
 import PaintMixer from "./pages/PaintMixer";
 import AiFigures from "./pages/AiFigures";
 import Viewer3D from "./pages/Viewer3D";
 import PriceCalculator from "./pages/PriceCalculator";
 import MarketingGenerator from "./pages/MarketingGenerator";
+import PlateCreator from "./pages/PlateCreator";
+import CookieCutterMaker from "./pages/CookieCutterMaker";
 
 function NavItem({ to, icon: Icon, label, description }: { to: string; icon: any; label: string; description: string }) {
   const location = useLocation();
@@ -53,6 +55,8 @@ function Layout({ children }: { children: React.ReactNode }) {
         </div>
         <div className="flex flex-col w-full">
           <NavItem to="/" icon={BoxSelect} label="Separar Partes 3D" description="3D Viewer & Slicer" />
+          <NavItem to="/cookie-cutter-maker" icon={Scissors} label="Cortador de Biscoitos" description="Biscoito CUT Maker" />
+          <NavItem to="/plate-creator" icon={Sparkles} label="Criador de Placas 3D" description="3D Plate Designer" />
           <NavItem to="/paint-mixer" icon={Brush} label="Misturador de Tintas" description="Paint Color Mixer" />
           <NavItem to="/ai-figures" icon={Cuboid} label="Gerador de Figuras" description="AI Character Figures" />
           <NavItem to="/price-calculator" icon={Calculator} label="Calculadora de Preços" description="Price Calculator" />
@@ -74,6 +78,8 @@ export default function App() {
       <Layout>
         <Routes>
           <Route path="/" element={<Viewer3D />} />
+          <Route path="/cookie-cutter-maker" element={<CookieCutterMaker />} />
+          <Route path="/plate-creator" element={<PlateCreator />} />
           <Route path="/paint-mixer" element={<PaintMixer />} />
           <Route path="/ai-figures" element={<AiFigures />} />
           <Route path="/price-calculator" element={<PriceCalculator />} />
