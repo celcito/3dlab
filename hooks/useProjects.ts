@@ -48,7 +48,8 @@ export function useProjects() {
       });
       setState((s) => ({ ...s, saving: false }));
       return true;
-    } catch {
+    } catch (e: any) {
+      console.error("Failed to save project version:", e?.message || e);
       setState((s) => ({ ...s, saving: false }));
       return false;
     }

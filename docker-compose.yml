@@ -6,10 +6,24 @@ services:
       - "8001:8001"
     volumes:
       - jobs-data:/tmp/jobs
+      # Cache dos modelos HuggingFace — evita baixar a cada restart
+      - hf-cache:/root/.cache/huggingface
     environment:
       - PYTHONUNBUFFERED=1
-      - CUDA_VISIBLE_DEVICES=
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8001/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
 
   app:
     build:
@@ -25,8 +39,10 @@ services:
       - GEMINI_API_KEY=${GEMINI_API_KEY:-}
       - NODE_ENV=production
     depends_on:
-      - triposr
+      triposr:
+        condition: service_healthy
     restart: unless-stopped
 
 volumes:
   jobs-data:
+  hf-cache:

@@ -1,4 +1,4 @@
-import { useCallback } from "react";
+import { useCallback, useMemo } from "react";
 import { Eye, EyeOff, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useVectorEditor } from "@/hooks/useVectorEditor";
@@ -12,6 +12,9 @@ export function LayerPanel({ editor }: LayerPanelProps) {
 
   const shapes = activePiece?.shapes ?? [];
   const shapeCount = shapes.length;
+
+  const allVisible = useMemo(() => shapes.every((s) => s.visible !== false), [shapes]);
+  const anyVisible = useMemo(() => shapes.some((s) => s.visible !== false), [shapes]);
 
   const handleToggleVisibility = useCallback(
     (shapeId: string, currentVisible: boolean) => {
@@ -29,15 +32,45 @@ export function LayerPanel({ editor }: LayerPanelProps) {
     [activePiece, removeShape]
   );
 
+  const handleShowAll = useCallback(() => {
+    if (!activePiece) return;
+    for (const s of shapes) {
+      if (s.visible === false) updateShape(activePiece.id, s.id, { visible: true });
+    }
+  }, [activePiece, shapes, updateShape]);
+
+  const handleHideAll = useCallback(() => {
+    if (!activePiece) return;
+    for (const s of shapes) {
+      if (s.visible !== false) updateShape(activePiece.id, s.id, { visible: false });
+    }
+  }, [activePiece, shapes, updateShape]);
+
   return (
     <div className="flex flex-col">
       <div className="flex items-center justify-between mb-2">
         <h3 className="font-black text-[10px] uppercase tracking-widest text-white">
           Camadas
         </h3>
-        <span className="font-mono text-[10px] text-[#00E5FF]">
-          {shapeCount}
-        </span>
+        <div className="flex items-center gap-1">
+          <button
+            type="button"
+            onClick={handleShowAll}
+            className="text-white/30 hover:text-white p-0.5 transition-colors"
+            title="Mostrar todas"
+          >
+            <Eye className="w-3 h-3" />
+          </button>
+          <button
+            type="button"
+            onClick={handleHideAll}
+            className="text-white/30 hover:text-white p-0.5 transition-colors"
+            title="Ocultar todas"
+          >
+            <EyeOff className="w-3 h-3" />
+          </button>
+          <span className="font-mono text-[10px] text-[#00E5FF]">{shapeCount}</span>
+        </div>
       </div>
 
       {shapes.length === 0 ? (

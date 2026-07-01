@@ -20,7 +20,10 @@ export interface FilamentConfig {
 }
 
 export interface CutterParams {
+  scale: number;
   height: number;
+  stampHeight: number;
+  stampGap: number;
   wallThickness: number;
   bladeThickness: number;
   baseThickness: number;
@@ -57,7 +60,10 @@ export interface ValidationResult {
 }
 
 export const DEFAULT_PARAMS: CutterParams = {
+  scale: 1,
   height: 25,
+  stampHeight: 8,
+  stampGap: 0,
   wallThickness: 1.5,
   bladeThickness: 1.0,
   baseThickness: 0,
@@ -69,8 +75,8 @@ export const DEFAULT_PARAMS: CutterParams = {
   minPrintThickness: 0.8,
   tolerance: 0.2,
   handles: {
-    enabled: false,
-    autoThreshold: 70,
+    enabled: true,
+    autoThreshold: 50,
     type: "loop",
     width: 20,
     thickness: 3,
@@ -114,6 +120,8 @@ export function validateParams(
   if (params.bladeThickness < 0.2) result.errors.push("Espessura da lâmina muito fina (< 0.2mm)");
   if (params.height < 2) result.errors.push("Altura do cortador muito baixa");
   if (params.height > 150) result.warnings.push("Altura do cortador muito alta");
+  if (params.stampHeight < 1) result.warnings.push("Altura do carimbo muito baixa");
+  if (params.stampHeight > params.height) result.warnings.push("Carimbo mais alto que a parede do cortador");
 
   if (profile) {
     if (params.wallThickness < profile.minWallThickness)

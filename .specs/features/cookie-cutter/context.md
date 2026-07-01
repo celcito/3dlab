@@ -327,6 +327,41 @@ Captura das decisões de design tiradas com o usuário durante as fases de discu
 
 ---
 
+### DC-18: Correções pós-implementação — alças, seleção, formas, visibilidade (2026-06-30)
+
+**Bug report:** 6 problemas encontrados após implementação inicial:
+1. Alças não aparecem no preview 3D
+2. Falta opção de criar só a parte oca (wall sem blade/base)
+3. Delete deleta a cena toda em vez do shape selecionado
+4. Shapes em layers diferentes não podem ser visualizados simultaneamente
+5. Estrela, triângulo, seta e outras formas aparecem imperfeitas
+6. Seleção de objeto não funciona (clique dentro da forma não seleciona)
+
+**Decision:** Correções aplicadas diretamente, documentadas abaixo.
+
+**FIX-1: Alças habilitadas por padrão**
+- `cutterParams.ts`: `handles.enabled` de `false` → `true`, `autoThreshold` de 70 → 50mm
+
+**FIX-2: Toggle visibilidade wall/blade/base**
+- Nova feature: checkboxes no `ParameterPanel` (seção 04.1 Visibilidade) para mostrar/ocultar parede, lâmina e base
+- `Preview3D.tsx`: props `showWall`, `showBlade`, `showBase` filtram quais meshes renderizar
+- `CookieCutter.tsx`: estado `showWall`/`showBlade`/`showBase` com `useState`
+
+**FIX-3 / FIX-6: Seleção de objetos**
+- Raiz do problema: `ShapeRenderer.tsx` usava `fill="none"` nos paths SVG, impedindo cliques no interior da forma
+- Solução: `fill="transparent"` + `pointerEvents: "visible"` no path — cliques no interior agora disparam o handler
+
+**FIX-4: Mostrar/Esconder todas as layers**
+- `LayerPanel.tsx`: botões `Eye` / `EyeOff` globais no header, iteram todos os shapes da peça ativa alterando `visible`
+
+**FIX-5: Formas imperfeitas**
+- Raiz: shapes auto-intersectantes (estrela 5/6, lua) eram criadas com `fill: "nonzero"` em vez de `"evenodd"`
+- Solução: `ShapeDef` ganhou propriedade `fillRule`; star5, star6, moon usam `"evenodd"`
+
+**Impact:** `ShapeRenderer.tsx`, `ShapeLibrary.tsx`, `LayerPanel.tsx`, `ParameterPanel.tsx`, `Preview3D.tsx`, `CookieCutter.tsx`, `cutterParams.ts`
+
+---
+
 ## Open Questions
 
 _Nenhuma no momento. Todas as decisões críticas foram tomadas nas 4 rodadas de discussão com o usuário._

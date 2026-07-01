@@ -80,11 +80,12 @@ export function ShapeRenderer({
       <path
         d={shape.d}
         fillRule={shape.fill}
-        fill="none"
+        fill="transparent"
         stroke={selected ? "#00E5FF" : "#ffffff"}
         strokeWidth={selected ? 2 : 1}
         strokeDasharray={selected ? "4 2" : "none"}
         opacity={shape.visible ? 1 : 0.3}
+        pointerEvents="visible"
         style={{ cursor }}
       />
       {hovered && shape.metadata.name && (

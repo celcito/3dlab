@@ -2,7 +2,7 @@ import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   Image, Loader2, CheckCircle, XCircle, Download, Box, ExternalLink,
-  LayoutGrid, LayoutList,
+  LayoutGrid, LayoutList, Type,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { UploadDropzone } from "@/components/UploadDropzone";
@@ -41,6 +41,12 @@ export default function ImageTo3D() {
   const [resolution, setResolution] = useState<256 | 512>(256);
   const { jobs: multiJobs, addJobs, allDone: multiAllDone } = useMultiJobStream();
 
+  const [textMode, setTextMode] = useState(false);
+  const [prompt, setPrompt] = useState("");
+  const [textUploading, setTextUploading] = useState(false);
+  const [textJobId, setTextJobId] = useState<string | null>(null);
+  const { progress: textProgress, connected: textConnected } = useJobStream(textJobId);
+
   const handleGenerate = async () => {
     if (!file) return;
     setError(null);
@@ -60,6 +66,29 @@ export default function ImageTo3D() {
       setError(e.message);
     } finally {
       setUploading(false);
+    }
+  };
+
+  const handleTextGenerate = async () => {
+    if (!prompt.trim()) return;
+    setError(null);
+    setTextUploading(true);
+    try {
+      const res = await fetch("/api/text-to-3d", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ prompt, mcResolution: resolution }),
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({ error: "Unknown error" }));
+        throw new Error(data.error || `HTTP ${res.status}`);
+      }
+      const data = await res.json();
+      setTextJobId(data.jobId);
+    } catch (e: any) {
+      setError(e.message);
+    } finally {
+      setTextUploading(false);
     }
   };
 
@@ -92,6 +121,7 @@ export default function ImageTo3D() {
   };
 
   const handleReset = () => { setFile(null); setJobId(null); setError(null); };
+  const handleTextReset = () => { setPrompt(""); setTextJobId(null); setTextUploading(false); setError(null); };
   const handleMultiReset = () => {
     setMultiFiles(new Array(4).fill(null));
     setMultiUploading(false);
@@ -108,6 +138,11 @@ export default function ImageTo3D() {
   const isDone = progress.status === "done";
   const isError = progress.status === "error" || !!error;
   const showProgress = uploading || isProcessing;
+
+  const textIsProcessing = textJobId !== null && textProgress.status !== "done" && textProgress.status !== "error";
+  const textIsDone = textProgress.status === "done";
+  const textIsError = textProgress.status === "error";
+  const textShowProgress = textUploading || textIsProcessing;
 
   const formatDownloadUrl = (fmt: string) => `/api/img2-3d/${jobId}/result/${fmt}`;
   const multiFormatDownloadUrl = (id: string, fmt: string) => `/api/img2-3d/${id}/result/${fmt}`;
@@ -129,18 +164,25 @@ export default function ImageTo3D() {
         <div className="text-right flex items-center gap-4">
           <div className="flex items-center gap-1 bg-[#0A0A0A] border border-[#222] p-1">
             <button
-              onClick={() => { setMultiMode(false); handleReset(); }}
-              className={`px-3 py-1 text-[9px] font-black uppercase tracking-widest transition-colors ${!multiMode ? "bg-[#00E5FF] text-black" : "text-zinc-500 hover:text-white"}`}
+              onClick={() => { setMultiMode(false); setTextMode(false); handleReset(); }}
+              className={`px-3 py-1 text-[9px] font-black uppercase tracking-widest transition-colors ${!multiMode && !textMode ? "bg-[#00E5FF] text-black" : "text-zinc-500 hover:text-white"}`}
             >
               <LayoutList className="w-3 h-3 inline mr-1" />
               Single
             </button>
             <button
-              onClick={() => { setMultiMode(true); handleMultiReset(); }}
+              onClick={() => { setMultiMode(true); setTextMode(false); handleMultiReset(); }}
               className={`px-3 py-1 text-[9px] font-black uppercase tracking-widest transition-colors ${multiMode ? "bg-[#00E5FF] text-black" : "text-zinc-500 hover:text-white"}`}
             >
               <LayoutGrid className="w-3 h-3 inline mr-1" />
               Multi
+            </button>
+            <button
+              onClick={() => { setTextMode(true); setMultiMode(false); handleTextReset(); }}
+              className={`px-3 py-1 text-[9px] font-black uppercase tracking-widest transition-colors ${textMode ? "bg-[#00E5FF] text-black" : "text-zinc-500 hover:text-white"}`}
+            >
+              <Type className="w-3 h-3 inline mr-1" />
+              Texto
             </button>
           </div>
           <div className="text-[10px] uppercase tracking-widest text-zinc-500">
@@ -153,7 +195,7 @@ export default function ImageTo3D() {
       <div className="flex-1 grid grid-cols-1 lg:grid-cols-2 overflow-hidden">
         {/* LEFT PANE */}
         <div className="bg-[#050505] p-6 overflow-y-auto border-r border-[#222]">
-          {!multiMode ? (
+          {!multiMode && !textMode ? (
             <section>
               <h3 className="text-[11px] uppercase tracking-widest text-zinc-400 mb-4 font-bold">01. Upload Image</h3>
               <div className="mb-4">
@@ -175,7 +217,41 @@ export default function ImageTo3D() {
                 </div>
               )}
             </section>
-          ) : (
+          ) : textMode ? (
+            <section>
+              <h3 className="text-[11px] uppercase tracking-widest text-zinc-400 mb-4 font-bold">01. Describe your object</h3>
+              <div className="mb-4">
+                <textarea
+                  value={prompt}
+                  onChange={(e) => setPrompt(e.target.value)}
+                  placeholder="e.g. a red toy car, a wooden boat, a fantasy sword..."
+                  rows={4}
+                  className="w-full bg-[#0A0A0A] border border-[#333] rounded-lg px-4 py-3 text-white font-mono text-sm resize-none placeholder:text-white/20 focus:border-[#00E5FF] focus:outline-none"
+                  disabled={textIsProcessing}
+                />
+              </div>
+              <p className="text-[10px] text-zinc-500 mb-4">
+                Describe the object you want to generate. The system will automatically add "product photo, white background" for best results.
+              </p>
+              <div className="flex gap-3">
+                <Button
+                  disabled={!prompt.trim() || textIsProcessing}
+                  onClick={handleTextGenerate}
+                  className="flex-1 bg-[#00E5FF] text-black font-black uppercase text-xs py-4 tracking-widest hover:bg-white transition-colors"
+                >
+                  {textUploading ? <><Loader2 className="w-4 h-4 animate-spin mr-2" /> Starting...</> : <><Type className="w-4 h-4 mr-2" /> Generate 3D</>}
+                </Button>
+                {textIsDone && (
+                  <Button onClick={handleTextReset} variant="outline" className="font-black uppercase text-xs tracking-widest">New</Button>
+                )}
+              </div>
+              {error && (
+                <div className="mt-4 border border-red-900/40 bg-red-950/20 rounded-lg p-4">
+                  <div className="flex items-start gap-2"><XCircle className="w-4 h-4 text-red-500 shrink-0 mt-0.5" /><div className="text-xs text-red-400">{error}</div></div>
+                </div>
+              )}
+            </section>
+          ) : multiMode ? (
             <section>
               <h3 className="text-[11px] uppercase tracking-widest text-zinc-400 mb-3 font-bold">01. Upload Images</h3>
               <p className="text-[10px] text-zinc-500 mb-3">
@@ -215,7 +291,7 @@ export default function ImageTo3D() {
                 </div>
               )}
             </section>
-          )}
+          ) : null}
 
           <section className="mt-6">
             <h3 className="text-[11px] uppercase tracking-widest text-zinc-400 mb-3 font-bold">02. Resolution</h3>
@@ -294,6 +370,47 @@ export default function ImageTo3D() {
                 </div>
               </section>
             ) : null
+          ) : textMode ? (
+            !textJobId && !textIsProcessing && !textIsDone ? (
+              <div className="flex-1 flex items-center justify-center">
+                <div className="text-center text-zinc-600"><Type className="w-16 h-16 mx-auto mb-4 opacity-20" /><p className="text-[10px] uppercase tracking-widest">Describe your object and click Generate 3D</p></div>
+              </div>
+            ) : textShowProgress && textProgress.status !== "done" && textProgress.status !== "error" ? (
+              <section className="flex-1">
+                <h3 className="text-[11px] uppercase tracking-widest text-zinc-400 mb-6 font-bold">Generating 3D Model</h3>
+                <div className="bg-[#111] border border-[#222] rounded-lg p-6 space-y-4">
+                  <div className="flex items-center gap-3"><Loader2 className="w-5 h-5 text-[#00E5FF] animate-spin" /><span className="text-sm font-mono text-zinc-300">{stepLabel(textProgress.step) || "Processing..."}</span></div>
+                  <div className="w-full bg-[#222] rounded-full h-1.5 overflow-hidden"><div className="h-full bg-[#00E5FF] rounded-full transition-all duration-500" style={{ width: `${Math.max(textProgress.progress, 2)}%` }} /></div>
+                  <p className="text-[10px] uppercase tracking-wider text-zinc-600">{textProgress.progress}%</p>
+                </div>
+              </section>
+            ) : textIsDone ? (
+              <section className="flex-1">
+                <h3 className="text-[11px] uppercase tracking-widest text-zinc-400 mb-4 font-bold">03. Result</h3>
+                <div className="bg-[#111] border border-[#00E5FF]/30 rounded-lg p-4 mb-4">
+                  <div className="flex items-center gap-2 mb-2"><CheckCircle className="w-4 h-4 text-[#00FF41]" /><span className="text-xs font-bold text-[#00FF41] uppercase tracking-wider">Complete</span></div>
+                  <p className="text-[11px] text-zinc-500">Your 3D model is ready.</p>
+                </div>
+                <Button onClick={() => navigate(`/viewer?model=${textJobId}`)} className="w-full bg-white text-black font-black uppercase text-xs py-3 tracking-widest hover:bg-[#00E5FF] mb-4"><ExternalLink className="w-4 h-4 mr-2" />Open in 3D Viewer</Button>
+                <h4 className="text-[10px] uppercase tracking-widest text-zinc-500 mb-2 font-bold">Download</h4>
+                <div className="space-y-2">
+                  {(["glb", "obj", "stl"] as const).map((fmt) => (
+                    <a key={fmt} href={`/api/img2-3d/${textJobId}/result/${fmt}`} download={`model.${fmt}`} className="flex items-center justify-between p-2.5 bg-[#151515] border border-zinc-800 hover:border-[#00E5FF]/40 transition-colors group">
+                      <span className="text-xs font-mono uppercase">{fmt}</span>
+                      <span className="flex items-center gap-1 text-[10px] text-zinc-500 group-hover:text-[#00E5FF]"><Download className="w-3 h-3" /> .{fmt}</span>
+                    </a>
+                  ))}
+                </div>
+              </section>
+            ) : textIsError ? (
+              <section className="flex-1">
+                <h3 className="text-[11px] uppercase tracking-widest text-zinc-400 mb-6 font-bold">Error</h3>
+                <div className="bg-[#111] border border-red-900/40 rounded-lg p-6">
+                  <div className="flex items-start gap-2 mb-3"><XCircle className="w-5 h-5 text-red-500 shrink-0 mt-0.5" /><div><p className="text-sm font-bold text-red-400">Generation Failed</p><p className="text-[11px] text-zinc-500 mt-1">{error || textProgress.error || "Unknown error"}</p></div></div>
+                  <Button onClick={handleTextReset} variant="outline" className="w-full mt-4 font-black uppercase text-xs tracking-widest">Try Again</Button>
+                </div>
+              </section>
+            ) : null
           ) : !multiAllDone && !multiProcessing ? (
             <div className="flex-1 flex items-center justify-center">
               <div className="text-center text-zinc-600"><Box className="w-12 h-12 mx-auto mb-3 opacity-20" /><p className="text-[10px] uppercase tracking-widest">Upload 2–4 images and click Generate All</p></div>
@@ -358,7 +475,7 @@ export default function ImageTo3D() {
       <footer className="h-12 border-t border-[#222] px-6 flex items-center justify-between bg-[#0A0A0A] shrink-0">
         <div className="flex gap-6 items-center text-[10px] uppercase tracking-widest text-zinc-500 font-bold">
           <span>Engine: <span className="text-[#00E5FF]">TripoSR</span></span>
-          <span>Mode: <span className={multiMode ? "text-[#00E5FF]" : "text-zinc-500"}>{multiMode ? "Multi-View" : "Single"}</span></span>
+          <span>Mode: <span className={multiMode || textMode ? "text-[#00E5FF]" : "text-zinc-500"}>{textMode ? "Texto → 3D" : multiMode ? "Multi-View" : "Single"}</span></span>
         </div>
       </footer>
     </div>

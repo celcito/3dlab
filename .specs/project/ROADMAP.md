@@ -77,7 +77,7 @@
 - **[F3.1] TripoSR high-res** - ✅ COMPLETE — toggle 256/512 no UI, query param mc_resolution no Python, proxy forward no Node
 - **[F3.2] Multi-image → 3D** - ✅ COMPLETE — tab "Multi" no ImageTo3D: upload 2-4 imagens, batch TripoSR parallel, gallery de resultados, download por view
 - **[F3.3] Auto-orientação** - ✅ COMPLETE — botão "Orient" no Toolbar: bin de normais por directional bins (8×8), face mais plana como base, rotaciona para Y
-- **[F3.4] Text-to-3D** - PLANNED — spec salvo em `.specs/features/text-to-3d/`. SDXL-Turbo + TripoSR chained, mesmo job/SSE infra.
+- **[F3.4] Text-to-3D** - ✅ COMPLETE — SDXL-Turbo → TripoSR pipeline via `/api/text-to-3d`. New "Texto → 3D" tab in ImageTo3D. Same job/SSE/result format as image-to-3d. Memory-safe unload before TripoSR.
 
 ---
 

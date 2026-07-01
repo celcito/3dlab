@@ -60,6 +60,38 @@ export function ExportPanel({
     URL.revokeObjectURL(url);
   }, [activeResult, activePiece]);
 
+  const handleExportStampMesh = useCallback(() => {
+    if (!activeResult) return;
+    const name = activePiece?.name || "cookie-cutter";
+    exportSTL(activeResult.stamp, `${name}_stamp.stl`);
+  }, [activeResult, activePiece]);
+
+  const handleExportSet = useCallback(async () => {
+    if (!activeResult) return;
+    const name = activePiece?.name || "cookie-cutter";
+    const zip = new JSZip();
+    const exporter = await import("three/examples/jsm/exporters/STLExporter.js");
+    const stlExport = new exporter.STLExporter();
+
+    const cutterStl = stlExport.parse(activeResult.combined, { binary: true });
+    const cutterData = cutterStl instanceof ArrayBuffer ? cutterStl : new TextEncoder().encode(String(cutterStl));
+    zip.file(`${name}_cutter.stl`, cutterData);
+
+    const stampStl = stlExport.parse(activeResult.stamp, { binary: true });
+    const stampData = stampStl instanceof ArrayBuffer ? stampStl : new TextEncoder().encode(String(stampStl));
+    zip.file(`${name}_stamp.stl`, stampData);
+
+    const blob = await zip.generateAsync({ type: "blob" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `${name}_set.zip`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  }, [activeResult, activePiece]);
+
   const handleBambu3MF = useCallback(async () => {
     if (!activeResult || !cutterParams) return;
     const name = activePiece?.name || "cookie-cutter";
@@ -127,6 +159,25 @@ export function ExportPanel({
           />
         </div>
       )}
+
+      <div className="border-t border-[#222] pt-2">
+        <p className="font-mono text-[9px] text-[#ff9933] uppercase tracking-widest mb-1">
+          Conjunto (cortador + carimbo)
+        </p>
+        <div className="flex flex-wrap gap-1">
+          <ExportButton
+            label="Carimbo STL"
+            disabled={!hasResult || !cutterParams || cutterParams.stampHeight <= 0}
+            onClick={handleExportStampMesh}
+          />
+          <ExportButton
+            label="Conjunto (.zip)"
+            disabled={!hasResult}
+            onClick={handleExportSet}
+            variant="primary"
+          />
+        </div>
+      </div>
 
       <div className="border-t border-[#222] pt-2">
         <ExportButton

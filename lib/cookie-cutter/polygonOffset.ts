@@ -41,7 +41,7 @@ export function offsetPolygon(
     edges.push(edge);
     const len = Math.sqrt(edge.x * edge.x + edge.y * edge.y);
     if (len > 0) {
-      normals.push({ x: -edge.y / len, y: edge.x / len });
+      normals.push({ x: edge.y / len, y: -edge.x / len });
     } else {
       normals.push({ x: 0, y: 0 });
     }
@@ -86,16 +86,40 @@ export function offsetShape(
   shape: THREE.Shape,
   distance: number
 ): THREE.Shape {
-  const pts = shape.getPoints();
-  const vec2: Vec2[] = pts.map((p) => ({ x: p.x, y: p.y }));
-  const offset = offsetPolygon(vec2, distance);
   const newShape = new THREE.Shape();
-  if (offset.length > 0) {
-    newShape.moveTo(offset[0].x, offset[0].y);
-    for (let i = 1; i < offset.length; i++) {
-      newShape.lineTo(offset[i].x, offset[i].y);
-    }
+
+  const outerPts = shape.getPoints();
+  if (outerPts.length < 3) return newShape;
+
+  const outerVec2: Vec2[] = outerPts.map((p) => ({ x: p.x, y: p.y }));
+  const offset = offsetPolygon(outerVec2, distance);
+  if (offset.length < 3) return newShape;
+
+  newShape.moveTo(offset[0].x, offset[0].y);
+  for (let i = 1; i < offset.length; i++) {
+    newShape.lineTo(offset[i].x, offset[i].y);
   }
+  newShape.closePath();
+
+  for (const hole of shape.holes) {
+    const holePts = hole.getPoints();
+    if (holePts.length < 3) continue;
+
+    const holeVec2: Vec2[] = holePts.map((p) => ({ x: p.x, y: p.y }));
+    const offsetHole = offsetPolygon(holeVec2, distance);
+    if (offsetHole.length < 3) continue;
+
+    const cwHole = signedArea(offsetHole) > 0 ? offsetHole.reverse() : offsetHole;
+
+    const newHole = new THREE.Path();
+    newHole.moveTo(cwHole[0].x, cwHole[0].y);
+    for (let i = 1; i < cwHole.length; i++) {
+      newHole.lineTo(cwHole[i].x, cwHole[i].y);
+    }
+    newHole.closePath();
+    newShape.holes.push(newHole);
+  }
+
   return newShape;
 }
 
@@ -120,5 +144,20 @@ export function scaleShape(
   for (let i = 1; i < scaled.length; i++) {
     newShape.lineTo(scaled[i].x, scaled[i].y);
   }
+  newShape.closePath();
+
+  for (const hole of shape.holes) {
+    const holePts = hole.getPoints();
+    if (holePts.length < 3) continue;
+    const newHole = new THREE.Path();
+    const scaledHole = holePts.map((p) => ({ x: cx + (p.x - cx) * scale, y: cy + (p.y - cy) * scale }));
+    newHole.moveTo(scaledHole[0].x, scaledHole[0].y);
+    for (let i = 1; i < scaledHole.length; i++) {
+      newHole.lineTo(scaledHole[i].x, scaledHole[i].y);
+    }
+    newHole.closePath();
+    newShape.holes.push(newHole);
+  }
+
   return newShape;
 }

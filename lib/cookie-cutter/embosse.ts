@@ -64,7 +64,8 @@ function trimZeroArea(geom: THREE.BufferGeometry): THREE.BufferGeometry {
 
 export function applyEmbosseToBlade(
   bladeMesh: THREE.Mesh,
-  piece: VectorPiece
+  piece: VectorPiece,
+  topZ = 0
 ): EmbosseResult {
   if (piece.embosseShapes.length === 0) {
     return { bladeMesh, stamps: [] };
@@ -95,7 +96,7 @@ export function applyEmbosseToBlade(
     stampGeom.translate(
       shape.transform.tx,
       shape.transform.ty,
-      isDeboss ? -depth : 0
+      isDeboss ? topZ - depth : topZ
     );
     stampGeom.rotateZ((shape.transform.rotation * Math.PI) / 180);
     stampGeom.scale(shape.transform.sx, shape.transform.sy, 1);
@@ -135,7 +136,9 @@ export function applyEmbosseToBlade(
 
       modifiedBlade = new THREE.Mesh(
         resultGeom,
-        bladeMesh.material.clone()
+        Array.isArray(bladeMesh.material)
+          ? bladeMesh.material.map((m) => m.clone())
+          : bladeMesh.material.clone()
       );
     } catch (e: any) {
       console.warn(`CSG failed for embosse shape: ${e?.message || e}`);

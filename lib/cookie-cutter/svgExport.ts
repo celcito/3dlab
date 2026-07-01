@@ -1,4 +1,5 @@
 import { VectorScene, Shape2D } from "./svgTypes";
+import { shapeBoundingBox } from "./shape2D";
 
 function composeTransformStr(shape: Shape2D): string {
   const t = shape.transform;
@@ -14,6 +15,46 @@ function composeTransformStr(shape: Shape2D): string {
     if (t.mirrorY) parts.push("scale(1,-1)");
   }
   return parts.join(" ");
+}
+
+function computeSceneBBox(scene: VectorScene): { x: number; y: number; w: number; h: number } {
+  let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+
+  for (const piece of scene.pieces) {
+    for (const shape of piece.shapes) {
+      if (shape.visible === false) continue;
+      const bbox = shapeBoundingBox(shape.d);
+      const tx = shape.transform.tx;
+      const ty = shape.transform.ty;
+      const sx = shape.transform.mirrorX ? -shape.transform.sx : shape.transform.sx;
+      const sy = shape.transform.mirrorY ? -shape.transform.sy : shape.transform.sy;
+      const r = (shape.transform.rotation * Math.PI) / 180;
+      const cos = Math.cos(r);
+      const sin = Math.sin(r);
+
+      const corners = [
+        { x: bbox.x, y: bbox.y },
+        { x: bbox.x + bbox.w, y: bbox.y },
+        { x: bbox.x, y: bbox.y + bbox.h },
+        { x: bbox.x + bbox.w, y: bbox.y + bbox.h },
+      ];
+
+      for (const c of corners) {
+        const rx = c.x * sx;
+        const ry = c.y * sy;
+        const cx = rx * cos - ry * sin + tx;
+        const cy = rx * sin + ry * cos + ty;
+        minX = Math.min(minX, cx);
+        minY = Math.min(minY, cy);
+        maxX = Math.max(maxX, cx);
+        maxY = Math.max(maxY, cy);
+      }
+    }
+  }
+
+  if (!isFinite(minX)) return { x: 0, y: 0, w: 200, h: 200 };
+  const pad = 10;
+  return { x: minX - pad, y: minY - pad, w: maxX - minX + pad * 2, h: maxY - minY + pad * 2 };
 }
 
 export function sceneToSvgString(scene: VectorScene): string {
@@ -37,9 +78,11 @@ export function sceneToSvgString(scene: VectorScene): string {
     shapes.push(`  </g>`);
   }
 
+  const bbox = computeSceneBBox(scene);
+
   return [
     `<?xml version="1.0" encoding="UTF-8"?>`,
-    `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200" width="200" height="200">`,
+    `<svg xmlns="http://www.w3.org/2000/svg" viewBox="${bbox.x} ${bbox.y} ${bbox.w} ${bbox.h}" width="${bbox.w}" height="${bbox.h}">`,
     ...shapes,
     `</svg>`,
   ].join("\n");

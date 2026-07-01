@@ -12,6 +12,10 @@ interface Preview3DProps {
   wireframe: boolean;
   showDimensions: boolean;
   activePieceId: string | null;
+  showWall?: boolean;
+  showBlade?: boolean;
+  showBase?: boolean;
+  showStamp?: boolean;
 }
 
 function setMeshWireframe(mesh: THREE.Mesh, wireframe: boolean) {
@@ -26,19 +30,32 @@ function setMeshWireframe(mesh: THREE.Mesh, wireframe: boolean) {
 function ResultMesh({
   result,
   wireframe,
+  showWall = true,
+  showBlade = true,
+  showBase = true,
+  showStamp = true,
 }: {
   result: CutterResult;
   wireframe: boolean;
+  showWall?: boolean;
+  showBlade?: boolean;
+  showBase?: boolean;
+  showStamp?: boolean;
 }) {
-  const allMeshes = [
-    result.wall,
-    result.blade,
-    result.base,
+  const allMeshes: THREE.Mesh[] = [
     ...result.handles,
     ...result.ribs,
     ...result.embosseMeshes,
     ...result.stamps,
   ];
+  if (showWall) allMeshes.unshift(result.wall);
+  if (showBlade) allMeshes.unshift(result.blade);
+  if (showBase && result.base.geometry.attributes.position.count > 0) {
+    allMeshes.unshift(result.base);
+  }
+  if (showStamp && result.stamp.geometry.attributes.position.count > 0) {
+    allMeshes.unshift(result.stamp);
+  }
 
   for (const m of allMeshes) {
     if (m && m.geometry.attributes.position) {
@@ -61,10 +78,18 @@ function Scene3D({
   results,
   pieceIds,
   wireframe,
+  showWall,
+  showBlade,
+  showBase,
+  showStamp,
 }: {
   results: Map<string, CutterResult>;
   pieceIds: string[];
   wireframe: boolean;
+  showWall?: boolean;
+  showBlade?: boolean;
+  showBase?: boolean;
+  showStamp?: boolean;
 }) {
   const grid = piecesToGrid(results, pieceIds, 5);
 
@@ -87,7 +112,14 @@ function Scene3D({
         if (!result) return null;
         return (
           <group key={pieceId} position={pos}>
-            <ResultMesh result={result} wireframe={wireframe} />
+            <ResultMesh
+              result={result}
+              wireframe={wireframe}
+              showWall={showWall}
+              showBlade={showBlade}
+              showBase={showBase}
+              showStamp={showStamp}
+            />
           </group>
         );
       })}
@@ -101,6 +133,10 @@ export function Preview3D({
   wireframe,
   showDimensions,
   activePieceId,
+  showWall,
+  showBlade,
+  showBase,
+  showStamp,
 }: Preview3DProps) {
   const hasResults = pieceIds.some((id) => results.has(id));
 
@@ -115,7 +151,15 @@ export function Preview3D({
       ) : (
         <Canvas camera={{ position: [50, 40, 60], fov: 45 }}>
           <Suspense fallback={null}>
-            <Scene3D results={results} pieceIds={pieceIds} wireframe={wireframe} />
+            <Scene3D
+              results={results}
+              pieceIds={pieceIds}
+              wireframe={wireframe}
+              showWall={showWall}
+              showBlade={showBlade}
+              showBase={showBase}
+              showStamp={showStamp}
+            />
             <OrbitControls makeDefault />
           </Suspense>
         </Canvas>

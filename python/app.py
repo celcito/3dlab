@@ -223,6 +223,96 @@ async def decimate_endpoint(file: UploadFile = File(...), ratio: float = 0.5):
         shutil.rmtree(job_dir, ignore_errors=True)
 
 
+def _run_text_to_3d(job_id: str, prompt: str, output_dir: str, mc_resolution: int = 256, clean_prompt: bool = True):
+    try:
+        from text_to_image import generate_image
+    except ImportError:
+        update_job(job_id, "error", progress=0, step="error",
+                     error="diffusers not installed. Run: pip install diffusers accelerate safetensors")
+        return
+
+    try:
+        def progress(pct: int, step: str):
+            update_job(job_id, "processing", progress=pct, step=step)
+
+        update_job(job_id, "processing", progress=0, step="loading_text_model")
+
+        image_path = str(Path(output_dir) / "input.png")
+        generate_image(
+            prompt=prompt,
+            output_path=image_path,
+            clean_prompt=clean_prompt,
+            progress_callback=progress,
+        )
+
+        update_job(job_id, "processing", progress=40, step="text_model_unloaded")
+
+        def triposr_progress(percent: int, step: str):
+            mapped = 40 + int(percent * 0.55)
+            update_job(job_id, "processing", progress=mapped, step=step)
+
+        result = infer(
+            image_path=image_path,
+            output_dir=output_dir,
+            foreground_ratio=0.85,
+            mc_resolution=mc_resolution,
+            progress_callback=triposr_progress,
+        )
+
+        update_job(job_id, "processing", progress=95, step="converting_formats")
+
+        convert_result = convert_glb_to_all(result["glb_path"], output_dir)
+
+        job_dir = Path(output_dir)
+        files = {}
+        for fmt in ["glb", "obj", "stl"]:
+            src = convert_result.get(fmt)
+            if src and Path(src).exists():
+                dest = job_dir / f"model.{fmt}"
+                if Path(src) != dest:
+                    shutil.move(src, dest)
+                files[fmt] = str(dest)
+
+        update_job(job_id, "done", progress=100, step="complete", files=files)
+        logger.info(f"Text-to-3D job {job_id} completed: {files}")
+
+    except Exception as e:
+        logger.exception(f"Text-to-3D job {job_id} failed: {e}")
+        update_job(job_id, "error", progress=0, step="error", error=str(e))
+
+
+class TextTo3DRequest:
+    def __init__(self, prompt: str, mc_resolution: int = 256, clean_prompt: bool = True):
+        self.prompt = prompt
+        self.mc_resolution = mc_resolution
+        self.clean_prompt = clean_prompt
+
+
+@app.post("/text-to-3d")
+async def text_to_3d_endpoint(request: dict):
+    prompt = request.get("prompt", "")
+    mc_resolution = request.get("mc_resolution", 256)
+    clean_prompt = request.get("clean_prompt", True)
+
+    if not prompt or not prompt.strip():
+        raise HTTPException(400, "prompt must not be empty")
+
+    if mc_resolution not in (128, 256, 384, 512):
+        raise HTTPException(400, "mc_resolution must be 128, 256, 384, or 512")
+
+    job_id = create_job()
+    job_dir = JOBS_DIR / job_id
+    job_dir.mkdir(parents=True, exist_ok=True)
+
+    threading.Thread(
+        target=_run_text_to_3d,
+        args=(job_id, prompt, str(job_dir), mc_resolution, clean_prompt),
+        daemon=True,
+    ).start()
+
+    return {"jobId": job_id}
+
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="127.0.0.1", port=8001, log_level="info")

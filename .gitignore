@@ -1,5 +1,6 @@
 node_modules/
 build/
+projects/
 dist/
 coverage/
 .DS_Store
@@ -9,3 +10,5 @@ coverage/
 tmp/jobs/
 python/venv/
 __pycache__/
+ examples/
+.venv/

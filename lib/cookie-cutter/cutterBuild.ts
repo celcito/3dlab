@@ -1,7 +1,8 @@
 import * as THREE from "three";
+import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
 import type { VectorPiece } from "./svgTypes";
 import type { CutterParams, PrintEstimate } from "./cutterParams";
-import { shape2DToThreeShape } from "./shape2D";
+import { shape2DToThreeShape, unionShapes } from "./shape2D";
 import { offsetShape, scaleShape } from "./polygonOffset";
 import { generateHandles } from "./handles";
 import { generateRibs } from "./reinforcements";
@@ -12,6 +13,7 @@ export interface CutterResult {
   wall: THREE.Mesh;
   blade: THREE.Mesh;
   base: THREE.Mesh;
+  stamp: THREE.Mesh;
   ribs: THREE.Mesh[];
   handles: THREE.Mesh[];
   embosseMeshes: THREE.Mesh[];
@@ -54,14 +56,33 @@ const RIB_MATERIAL = new THREE.MeshStandardMaterial({
   roughness: 0.5,
   metalness: 0.1,
 });
+const STAMP_MATERIAL = new THREE.MeshStandardMaterial({
+  color: 0xff9933,
+  roughness: 0.5,
+  metalness: 0.05,
+});
 
-function extrudeShape(shape: THREE.Shape, depth: number): THREE.Mesh {
-  const geom = new THREE.ExtrudeGeometry(shape, {
+function shapeToExtrudeGeom(
+  shape: THREE.Shape,
+  depth: number,
+  bevel = false
+): THREE.ExtrudeGeometry {
+  return new THREE.ExtrudeGeometry(shape, {
     depth,
-    bevelEnabled: false,
+    bevelEnabled: bevel,
+    bevelThickness: 0.15,
+    bevelSize: 0.15,
+    bevelSegments: 1,
   });
-  const mesh = new THREE.Mesh(geom, WALL_MATERIAL.clone());
-  return mesh;
+}
+
+function extrudeShape(
+  shape: THREE.Shape,
+  depth: number,
+  material: THREE.Material
+): THREE.Mesh {
+  const geom = shapeToExtrudeGeom(shape, depth);
+  return new THREE.Mesh(geom, material.clone());
 }
 
 function computeBbox(mesh: THREE.Mesh): { w: number; h: number; d: number } {
@@ -88,13 +109,60 @@ function countTriangles(mesh: THREE.Mesh): number {
   return Math.floor(count);
 }
 
-function rebuildMaterial(mesh: THREE.Mesh, material: THREE.Material): THREE.Mesh {
-  mesh.traverse((child) => {
-    if (child instanceof THREE.Mesh) {
-      child.material = material;
+function buildHollowShape(outer: THREE.Shape, inner: THREE.Shape): THREE.Shape {
+  const wall = new THREE.Shape();
+  const outerPts = outer.getPoints();
+  if (outerPts.length < 3) return wall;
+  wall.moveTo(outerPts[0].x, outerPts[0].y);
+  for (let i = 1; i < outerPts.length; i++) {
+    wall.lineTo(outerPts[i].x, outerPts[i].y);
+  }
+  wall.closePath();
+
+  const innerPts = inner.getPoints();
+  if (innerPts.length >= 3) {
+    const hole = new THREE.Path();
+    hole.moveTo(innerPts[0].x, innerPts[0].y);
+    for (let i = 1; i < innerPts.length; i++) {
+      hole.lineTo(innerPts[i].x, innerPts[i].y);
     }
-  });
-  return mesh;
+    hole.closePath();
+    wall.holes.push(hole);
+  }
+
+  return wall;
+}
+
+function mergeMeshes(
+  meshes: THREE.Mesh[],
+  fallbackMaterial: THREE.Material
+): THREE.Mesh {
+  const geoms: THREE.BufferGeometry[] = [];
+  for (const m of meshes) {
+    const g = m.geometry;
+    if (!g || !g.attributes.position || g.attributes.position.count === 0) continue;
+
+    let cloned = g.clone();
+    if (cloned.index) cloned = cloned.toNonIndexed();
+    m.updateMatrix();
+    cloned.applyMatrix4(m.matrix);
+    cloned.deleteAttribute("uv");
+    cloned.deleteAttribute("uv1");
+    cloned.deleteAttribute("uv2");
+    cloned.deleteAttribute("color");
+    cloned.computeVertexNormals();
+    geoms.push(cloned);
+  }
+
+  const combined = new THREE.Mesh(new THREE.BufferGeometry(), fallbackMaterial.clone());
+  if (geoms.length === 0) return combined;
+
+  const merged = mergeGeometries(geoms, false);
+  if (merged && merged.attributes.position.count > 0) {
+    merged.computeVertexNormals();
+    combined.geometry = merged;
+  }
+  return combined;
 }
 
 export function buildCutter(
@@ -102,17 +170,15 @@ export function buildCutter(
   params: CutterParams
 ): CutterResult | null {
   try {
-    const shapes = piece.shapes
-      .filter((s) => s.visible !== false)
-      .map((s) => shape2DToThreeShape(s.d))
-      .filter((s) => {
-        const pts = s.getPoints();
-        return pts.length >= 3;
-      });
+    const unioned = unionShapes(piece.shapes);
+    if (!unioned) return null;
 
-    if (shapes.length === 0) return null;
+    let mainShape = shape2DToThreeShape(unioned.d);
+    if (mainShape.getPoints().length < 3) return null;
 
-    const mainShape = shapes[0];
+    if (params.scale !== 1 && params.scale > 0) {
+      mainShape = scaleShape(mainShape, params.scale);
+    }
 
     const outerShape =
       params.outerOffset + params.tolerance !== 0
@@ -122,119 +188,62 @@ export function buildCutter(
     const innerOffset = -(params.wallThickness + params.innerOffset);
     const innerShape = offsetShape(outerShape, innerOffset);
 
-    const wallMesh = extrudeShape(outerShape, params.height);
-    const innerHole = extrudeShape(innerShape, params.height);
-    innerHole.position.z -= 0.1;
+    if (innerShape.getPoints().length < 3) return null;
 
-    const wallGeom = wallMesh.geometry;
-    const holeGeom = innerHole.geometry;
+    const wallShape = buildHollowShape(outerShape, innerShape);
+    const wallMesh = extrudeShape(wallShape, params.height, WALL_MATERIAL);
+    wallMesh.position.z = 0;
 
-    const wallPositions = wallGeom.getAttribute("position");
-    const holePositions = holeGeom.getAttribute("position");
+    const bladeShape = buildHollowShape(outerShape, innerShape);
+    const bladeMesh = extrudeShape(bladeShape, params.bladeThickness, BLADE_MATERIAL);
+    bladeMesh.position.z = -params.bladeThickness;
 
-    const adjustedHole = new THREE.ExtrudeGeometry(innerShape, {
-      depth: params.height + 0.2,
-      bevelEnabled: false,
-    });
-    adjustedHole.translate(0, 0, -0.1);
-
-    const wallWithHole = new THREE.BufferGeometry();
-    wallWithHole.setAttribute("position", wallPositions);
-    if (wallGeom.index) wallWithHole.setIndex(wallGeom.index);
-    wallWithHole.computeVertexNormals();
-
-    const wallResult = new THREE.Mesh(wallWithHole);
-    rebuildMaterial(wallResult, WALL_MATERIAL.clone());
-
-    const bladeMesh = extrudeShape(outerShape, params.bladeThickness);
-    bladeMesh.position.z = -(params.bladeThickness + 0.1);
-    rebuildMaterial(bladeMesh, BLADE_MATERIAL.clone());
-
-    const results: CutterResult = {
-      wall: wallResult,
-      blade: bladeMesh,
-      base: new THREE.Mesh(new THREE.BufferGeometry()),
-      ribs: [],
-      handles: [],
-      embosseMeshes: [],
-      stamps: [],
-      combined: new THREE.Mesh(new THREE.BufferGeometry()),
-      stats: {
-        outerArea: 0,
-        innerArea: 0,
-        triangleCount: 0,
-        bbox: { w: 0, h: 0, d: 0 },
-        perimeter: 0,
-      },
-      estimate: {
-        volumeCm3: 0,
-        weightG: 0,
-        filamentLengthM: 0,
-        printTimeH: 0,
-        costBRL: 0,
-      },
-    };
-
+    const emptyBase = new THREE.BufferGeometry();
+    emptyBase.setAttribute("position", new THREE.BufferAttribute(new Float32Array(0), 3));
+    let baseMesh = new THREE.Mesh(emptyBase, BASE_MATERIAL.clone());
     if (params.baseThickness > 0) {
-      const baseBevel = Math.min(params.baseThickness / 2, 2);
-      const baseGeom = new THREE.ExtrudeGeometry(outerShape, {
-        depth: params.baseThickness,
-        bevelEnabled: baseBevel > 0,
-        bevelThickness: baseBevel,
-        bevelSize: baseBevel,
-        bevelSegments: 2,
-      });
-      results.base = new THREE.Mesh(baseGeom, BASE_MATERIAL.clone());
-      results.base.position.z = -(params.bladeThickness + params.baseThickness + 0.1);
+      const baseGeom = shapeToExtrudeGeom(outerShape, params.baseThickness, true);
+      baseMesh = new THREE.Mesh(baseGeom, BASE_MATERIAL.clone());
+      baseMesh.position.z = -(params.bladeThickness + params.baseThickness);
     }
 
+    const stampGap = params.stampGap ?? 0;
+    const stampDepth = params.stampHeight > 0 ? params.stampHeight : 0;
+    const stampMesh = extrudeShape(outerShape, stampDepth, STAMP_MATERIAL);
+    stampMesh.position.z = -(params.bladeThickness + stampGap + stampDepth);
+
+    let handles: THREE.Mesh[] = [];
     const handleShapes = generateHandles(outerShape, params);
-    results.handles = handleShapes.map((s) => {
-      const m = extrudeShape(s, params.height);
-      rebuildMaterial(m, HANDLE_MATERIAL.clone());
-      return m;
-    });
+    for (const s of handleShapes) {
+      const m = extrudeShape(s, params.height, HANDLE_MATERIAL);
+      handles.push(m);
+    }
 
+    let ribs: THREE.Mesh[] = [];
     const ribShapes = generateRibs(outerShape, innerShape, params.height, params);
-    results.ribs = ribShapes.map((s) => {
-      const m = extrudeShape(s, params.height);
-      rebuildMaterial(m, RIB_MATERIAL.clone());
-      return m;
-    });
-
-    if (piece.embosseShapes.length > 0) {
-      const embosseResult = applyEmbosseToBlade(results.blade, piece);
-      results.blade = embosseResult.bladeMesh;
-      results.stamps = embosseResult.stamps;
+    for (const s of ribShapes) {
+      const m = extrudeShape(s, params.height, RIB_MATERIAL);
+      ribs.push(m);
     }
 
-    const combinedGeom = new THREE.BufferGeometry();
-    const allMeshes = [results.wall, results.blade, results.base, ...results.ribs, ...results.handles];
-    const mergedGeometries: THREE.BufferGeometry[] = [];
-
-    for (const m of allMeshes) {
-      if (m.geometry.attributes.position && m.geometry.attributes.position.count > 0) {
-        mergedGeometries.push(m.geometry.clone().applyMatrix4(m.matrixWorld));
-      }
+    let stamps: THREE.Mesh[] = [];
+    if (piece.embosseShapes.length > 0 && stampDepth > 0) {
+      const embosseResult = applyEmbosseToBlade(stampMesh, piece, stampDepth);
+      stampMesh.geometry = embosseResult.bladeMesh.geometry;
+      stampMesh.material = embosseResult.bladeMesh.material;
+      stamps = embosseResult.stamps;
     }
 
-    results.combined = new THREE.Mesh(new THREE.BufferGeometry());
-    if (mergedGeometries.length > 0) {
-      let totalVertices = 0;
-      for (const g of mergedGeometries) totalVertices += g.attributes.position.count;
-      const combinedPos = new Float32Array(totalVertices * 3);
-      let offset = 0;
-      for (const g of mergedGeometries) {
-        const pos = g.attributes.position.array as Float32Array;
-        combinedPos.set(pos, offset * 3);
-        offset += g.attributes.position.count;
-      }
-      results.combined.geometry.setAttribute(
-        "position",
-        new THREE.BufferAttribute(combinedPos, 3)
-      );
-      results.combined.geometry.computeVertexNormals();
-    }
+    const allForCombined: THREE.Mesh[] = [
+      wallMesh,
+      bladeMesh,
+      baseMesh,
+      stampMesh,
+      ...ribs,
+      ...handles,
+      ...stamps,
+    ];
+    const combined = mergeMeshes(allForCombined, WALL_MATERIAL);
 
     const pts = outerShape.getPoints();
     let perimeter = 0;
@@ -245,19 +254,66 @@ export function buildCutter(
       perimeter += Math.sqrt(dx * dx + dy * dy);
     }
 
-    results.stats = {
-      outerArea: Math.abs(THREE.ShapeUtils.area(outerShape.getPoints())),
-      innerArea: Math.abs(THREE.ShapeUtils.area(innerShape.getPoints())),
-      triangleCount: countTriangles(results.combined),
-      bbox: computeBbox(results.combined),
-      perimeter,
+    const result: CutterResult = {
+      wall: wallMesh,
+      blade: bladeMesh,
+      base: baseMesh,
+      stamp: stampMesh,
+      ribs,
+      handles,
+      embosseMeshes: [],
+      stamps,
+      combined,
+      stats: {
+        outerArea: Math.abs(THREE.ShapeUtils.area(outerShape.getPoints())),
+        innerArea: Math.abs(THREE.ShapeUtils.area(innerShape.getPoints())),
+        triangleCount: countTriangles(combined),
+        bbox: computeBbox(combined),
+        perimeter,
+      },
+      estimate: calculateEstimate(combined, params),
     };
 
-    results.estimate = calculateEstimate(results.combined, params);
-
-    return results;
+    return result;
   } catch (e) {
     console.error("buildCutter error:", e);
+    return null;
+  }
+}
+
+export function buildStampOnly(
+  piece: VectorPiece,
+  params: CutterParams
+): THREE.Mesh | null {
+  try {
+    const unioned = unionShapes(piece.shapes);
+    if (!unioned) return null;
+
+    let mainShape = shape2DToThreeShape(unioned.d);
+    if (mainShape.getPoints().length < 3) return null;
+
+    if (params.scale !== 1 && params.scale > 0) {
+      mainShape = scaleShape(mainShape, params.scale);
+    }
+
+    const outerShape =
+      params.outerOffset + params.tolerance !== 0
+        ? offsetShape(mainShape, params.outerOffset + params.tolerance)
+        : mainShape;
+
+    const stampDepth = params.stampHeight > 0 ? params.stampHeight : 0;
+    const stampMesh = extrudeShape(outerShape, stampDepth, STAMP_MATERIAL);
+    stampMesh.position.z = 0;
+
+    if (piece.embosseShapes.length > 0 && stampDepth > 0) {
+      const embosseResult = applyEmbosseToBlade(stampMesh, piece, stampDepth);
+      stampMesh.geometry = embosseResult.bladeMesh.geometry;
+      stampMesh.material = embosseResult.bladeMesh.material;
+    }
+
+    return stampMesh;
+  } catch (e) {
+    console.error("buildStampOnly error:", e);
     return null;
   }
 }

@@ -203,6 +203,37 @@ Return only the optimized prompt.`;
     }
   });
 
+  // Text-to-3D API (proxy to Python FastAPI service)
+  app.post("/api/text-to-3d", async (req, res) => {
+    try {
+      const { prompt, mcResolution = 256, cleanPrompt } = req.body;
+      if (!prompt || !prompt.trim()) {
+        return res.status(400).json({ error: "prompt must not be empty" });
+      }
+
+      const response = await fetch(`${IMG2_3D_PY_URL}/text-to-3d`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          prompt,
+          mc_resolution: mcResolution,
+          clean_prompt: cleanPrompt !== false,
+        }),
+      });
+
+      if (!response.ok) {
+        const text = await response.text();
+        return res.status(response.status).json({ error: text });
+      }
+
+      const data = await response.json();
+      res.json(data);
+    } catch (error: any) {
+      console.error("Text-to-3D proxy error:", error);
+      res.status(500).json({ error: error.message || "Failed to start text-to-3d generation" });
+    }
+  });
+
   // Project persistence API
   const PROJECTS_DIR = path.join(process.cwd(), "projects");
   fs.mkdirSync(PROJECTS_DIR, { recursive: true });
@@ -374,7 +405,9 @@ Return only the optimized prompt.`;
       const v = meta.currentVersion + 1;
       const createdAt = Date.now();
       const versionData = { version: v, createdAt, params, scene, thumbnail64: thumbnail64 || "" };
-      fs.writeFileSync(getVersionPath(req.params.id, v), JSON.stringify(versionData));
+      const vPath = getVersionPath(req.params.id, v);
+      fs.writeFileSync(vPath, JSON.stringify(versionData, null, 2));
+      console.log(`[projects] Saved version ${v} for project ${req.params.id}`);
       meta.currentVersion = v;
       meta.versionCount = v;
       meta.updatedAt = createdAt;
@@ -383,6 +416,7 @@ Return only the optimized prompt.`;
       writeProjectMeta(meta);
       res.json({ version: v, createdAt, thumbnail64: thumbnail64 || "" });
     } catch (e: any) {
+      console.error("[projects] Save version error:", e?.message || e);
       res.status(500).json({ error: e.message });
     }
   });

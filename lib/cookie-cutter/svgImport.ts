@@ -1,4 +1,6 @@
 import { Shape2D, VectorPiece, VectorScene } from "./svgTypes";
+import { loadFont, getCachedFont, textToPath } from "./fontLoader";
+import { applyMatrixToPathD, parseTransform } from "./shape2D";
 
 export function createDefaultScene(): VectorScene {
   const piece: VectorPiece = {
@@ -29,7 +31,7 @@ export function createShapeFromD(d: string, kind: Shape2D["kind"] = "path"): Sha
   };
 }
 
-function extractPathsFromSvg(svg: string): Shape2D[] {
+async function extractPathsFromSvg(svg: string): Promise<Shape2D[]> {
   const parser = new DOMParser();
   const doc = parser.parseFromString(svg, "image/svg+xml");
   const parseError = doc.querySelector("parsererror");
@@ -37,25 +39,51 @@ function extractPathsFromSvg(svg: string): Shape2D[] {
     throw new Error("SVG inválido: erro de parse XML");
   }
 
+  const hasText = doc.querySelector("text") !== null;
+  if (hasText) {
+    try {
+      await Promise.race([
+        loadFont(),
+        new Promise<never>((_, reject) => setTimeout(() => reject(new Error("timeout")), 3000)),
+      ]);
+    } catch {
+      console.warn("Fonte indisponível, texto de SVG será ignorado");
+    }
+  }
+
   const shapes: Shape2D[] = [];
   const svgEl = doc.documentElement;
 
-  function processNode(node: Element, inheritedTransform: string, groupName?: string) {
+  function processNode(node: Element, inheritedTransform: string, inheritedFillRule: string, groupName?: string) {
     const transform = node.getAttribute("transform") || "";
     const combinedTransform = [inheritedTransform, transform].filter(Boolean).join(" ");
+    const nodeFillRule = node.getAttribute("fill-rule") || inheritedFillRule;
     let name = groupName;
     if (node.tagName === "g" && node.getAttribute("id")) {
       name = node.getAttribute("id")!;
     }
 
-    const pathNodes = node.querySelectorAll(":scope > path, :scope > rect, :scope > circle, :scope > ellipse, :scope > polygon, :scope > polyline, :scope > line");
+    const pathNodes = node.querySelectorAll(":scope > path, :scope > rect, :scope > circle, :scope > ellipse, :scope > polygon, :scope > polyline, :scope > line, :scope > text");
     for (const el of pathNodes) {
       const d = elementToPathD(el as Element);
       if (!d) continue;
       const shape = createShapeFromD(d, "path");
-      if (combinedTransform) {
-        shape.rawTransform = combinedTransform;
+
+      const elFillRule = (el as Element).getAttribute("fill-rule") || nodeFillRule;
+      if (elFillRule === "evenodd") {
+        shape.fill = "evenodd";
       }
+
+      let elTransform = (el as Element).getAttribute("transform") || "";
+      if (elTransform) {
+        const m = parseTransform(elTransform);
+        shape.d = applyMatrixToPathD(shape.d, m);
+      }
+      if (combinedTransform) {
+        const m = parseTransform(combinedTransform);
+        shape.d = applyMatrixToPathD(shape.d, m);
+      }
+
       if (name) shape.metadata.name = name;
       shapes.push(shape);
     }
@@ -63,11 +91,11 @@ function extractPathsFromSvg(svg: string): Shape2D[] {
     const groups = node.querySelectorAll(":scope > g");
     for (const g of groups) {
       const gName = g.getAttribute("id") || undefined;
-      processNode(g as Element, combinedTransform, gName || name);
+      processNode(g as Element, combinedTransform, nodeFillRule, gName || name);
     }
   }
 
-  processNode(svgEl, "", undefined);
+  processNode(svgEl, "", "", undefined);
 
   if (shapes.length === 0) {
     throw new Error("SVG vazio — nenhum path encontrado");
@@ -126,6 +154,16 @@ function elementToPathD(el: Element): string | null {
       const y2 = parseFloat(el.getAttribute("y2") || "0");
       return `M ${x1} ${y1} L ${x2} ${y2}`;
     }
+    case "text": {
+      const font = getCachedFont();
+      if (!font) return null;
+      const text = el.textContent || "";
+      if (!text.trim()) return null;
+      const fontSize = parseFloat(el.getAttribute("font-size") || "16");
+      const x = parseFloat(el.getAttribute("x") || "0");
+      const y = parseFloat(el.getAttribute("y") || "0");
+      return textToPath(text, fontSize, x, y, font);
+    }
     default:
       return null;
   }
@@ -136,8 +174,8 @@ export async function parseSvgFile(file: File): Promise<VectorScene> {
   return parseSvgString(text, file.name);
 }
 
-export function parseSvgString(svg: string, sourceName?: string): VectorScene {
-  const shapes = extractPathsFromSvg(svg);
+export async function parseSvgString(svg: string, sourceName?: string): Promise<VectorScene> {
+  const shapes = await extractPathsFromSvg(svg);
   const scene = createDefaultScene();
   scene.pieces[0].name = sourceName ? sourceName.replace(/\.svg$/i, "") : "Peça 1";
   scene.pieces[0].shapes = shapes;

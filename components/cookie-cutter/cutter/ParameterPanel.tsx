@@ -21,6 +21,14 @@ interface ParameterPanelProps {
     costBRL: number;
   };
   piece?: VectorPiece | null;
+  showWall?: boolean;
+  showBlade?: boolean;
+  showBase?: boolean;
+  showStamp?: boolean;
+  onShowWallChange?: (show: boolean) => void;
+  onShowBladeChange?: (show: boolean) => void;
+  onShowBaseChange?: (show: boolean) => void;
+  onShowStampChange?: (show: boolean) => void;
 }
 
 function SliderRow({
@@ -69,6 +77,14 @@ export function ParameterPanel({
   profile,
   estimate,
   piece,
+  showWall = true,
+  showBlade = true,
+  showBase = true,
+  showStamp = true,
+  onShowWallChange,
+  onShowBladeChange,
+  onShowBaseChange,
+  onShowStampChange,
 }: ParameterPanelProps) {
   const handlePreset = useCallback(
     (preset: (typeof PRESETS)[0]) => {
@@ -84,7 +100,10 @@ export function ParameterPanel({
           01. Parâmetros
         </h3>
         <div className="space-y-0.5">
+          <SliderRow label="Escala" value={params.scale} min={0.5} max={5} step={0.1} onChange={(v) => onParamsChange({ scale: v })} />
           <SliderRow label="Altura" value={params.height} min={5} max={80} step={0.5} onChange={(v) => onParamsChange({ height: v })} />
+          <SliderRow label="Carimbo" value={params.stampHeight} min={0} max={30} step={0.5} onChange={(v) => onParamsChange({ stampHeight: v })} />
+          <SliderRow label="Gap" value={params.stampGap} min={-2} max={5} step={0.5} onChange={(v) => onParamsChange({ stampGap: v })} />
           <SliderRow label="Parede" value={params.wallThickness} min={0.8} max={4} step={0.1} onChange={(v) => onParamsChange({ wallThickness: v })} />
           <SliderRow label="Lâmina" value={params.bladeThickness} min={0.4} max={3} step={0.1} onChange={(v) => onParamsChange({ bladeThickness: v })} />
           <SliderRow label="Base" value={params.baseThickness} min={0} max={5} step={0.5} onChange={(v) => onParamsChange({ baseThickness: v })} />
@@ -176,6 +195,58 @@ export function ParameterPanel({
           </button>
         ))}
       </div>
+
+      <section>
+        <h3 className="text-[11px] uppercase tracking-widest text-zinc-400 mb-2 font-bold">
+          04.1 Visibilidade
+        </h3>
+        <div className="flex flex-col gap-1.5">
+          <label className="flex items-center gap-2 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={showWall}
+              onChange={(e) => onShowWallChange?.(e.target.checked)}
+              className="accent-[#00E5FF] w-3 h-3"
+            />
+            <span className="font-mono text-[10px] uppercase tracking-widest text-white/80">
+              Parede
+            </span>
+          </label>
+          <label className="flex items-center gap-2 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={showBlade}
+              onChange={(e) => onShowBladeChange?.(e.target.checked)}
+              className="accent-[#00E5FF] w-3 h-3"
+            />
+            <span className="font-mono text-[10px] uppercase tracking-widest text-white/80">
+              Lâmina
+            </span>
+          </label>
+          <label className="flex items-center gap-2 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={showBase}
+              onChange={(e) => onShowBaseChange?.(e.target.checked)}
+              className="accent-[#00E5FF] w-3 h-3"
+            />
+            <span className="font-mono text-[10px] uppercase tracking-widest text-white/80">
+              Base
+            </span>
+          </label>
+          <label className="flex items-center gap-2 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={showStamp}
+              onChange={(e) => onShowStampChange?.(e.target.checked)}
+              className="accent-[#00E5FF] w-3 h-3"
+            />
+            <span className="font-mono text-[10px] uppercase tracking-widest text-white/80">
+              Carimbo
+            </span>
+          </label>
+        </div>
+      </section>
 
       <HandlesControls
         handles={params.handles}

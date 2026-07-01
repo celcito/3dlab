@@ -14,6 +14,7 @@ interface ShapeDef {
   id: string;
   label: string;
   d: string;
+  fillRule?: "evenodd" | "nonzero";
 }
 
 const SHAPES: ShapeDef[] = [
@@ -36,11 +37,13 @@ const SHAPES: ShapeDef[] = [
     id: "star5",
     label: "Estrela 5",
     d: "M 18 2 L 22 14 L 34 14 L 24 22 L 28 34 L 18 26 L 8 34 L 12 22 L 2 14 L 14 14 Z",
+    fillRule: "evenodd",
   },
   {
     id: "star6",
     label: "Estrela 6",
     d: "M 18 2 L 22 12 L 32 10 L 26 18 L 34 24 L 24 24 L 22 34 L 14 26 L 4 28 L 10 18 L 2 12 L 12 14 Z",
+    fillRule: "evenodd",
   },
   {
     id: "heart",
@@ -61,6 +64,7 @@ const SHAPES: ShapeDef[] = [
     id: "moon",
     label: "Lua",
     d: "M 28 2 Q 18 10 18 18 Q 18 26 28 34 Q 20 30 20 18 Q 20 6 28 2 Z",
+    fillRule: "evenodd",
   },
   {
     id: "arrow",
@@ -132,7 +136,7 @@ export function ShapeLibrary({ editor }: ShapeLibraryProps) {
           mirrorX: false,
           mirrorY: false,
         },
-        fill: "nonzero",
+        fill: shape.fillRule || "nonzero",
         metadata: {
           name: `${shape.label} (${selectedSize}mm)`,
           iconSource: shape.id,

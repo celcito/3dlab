@@ -158,16 +158,35 @@ export default function CookieCutter() {
   );
 
   const handleSaveProject = useCallback(async () => {
-    if (!currentProject) return;
-    const project: Project = {
-      ...currentProject,
+    let proj = currentProject;
+    if (!proj) {
+      const name = `Projeto ${new Date().toLocaleDateString("pt-BR")}`;
+      const meta = await projects.create(name);
+      if (!meta) {
+        console.error("Failed to create project for auto-save");
+        return;
+      }
+      proj = {
+        id: meta.id,
+        name: meta.name,
+        favorite: false,
+        currentVersion: 0,
+        scene,
+        params,
+        printProfile: params.printProfile,
+        versions: [],
+      };
+      setCurrentProject(proj);
+    }
+    const updated: Project = {
+      ...proj,
       scene,
       params,
-      currentVersion: (currentProject.currentVersion || 0) + 1,
+      currentVersion: (proj.currentVersion || 0) + 1,
     };
-    const ok = await projects.save(project);
+    const ok = await projects.save(updated);
     if (ok) {
-      const v = (currentProject.currentVersion || 0) + 1;
+      const v = (proj.currentVersion || 0) + 1;
       setCurrentProject((p) => (p ? { ...p, currentVersion: v } : p));
     }
   }, [currentProject, scene, params, projects]);
