@@ -5,13 +5,65 @@ import * as THREE from "three";
 import { FontLoader, Font } from "three/examples/jsm/loaders/FontLoader.js";
 import { TextGeometry } from "three/examples/jsm/geometries/TextGeometry.js";
 import { STLExporter } from "three/examples/jsm/exporters/STLExporter.js";
+import { Stage, Layer, Rect, Text as KonvaText, Group as KonvaGroup } from 'react-konva';
 import { 
   Sparkles, Layers, Download, Plus, Trash2, Sliders, HelpCircle,
   Eye, EyeOff, RotateCcw, Copy, Folder, BookOpen, Save, FileDown,
   Info, Settings, LayoutGrid, Check, AlertTriangle, ArrowUpDown, Move, Type
 } from "lucide-react";
 
-// Types
+// Editor 2D Component
+function PlateEditor2D({ layers, onUpdateLayer, activeLayerId, setActiveLayerId }: any) {
+  return (
+    <Stage width={400} height={300} className="w-full h-full bg-zinc-950 border border-zinc-900 rounded-lg">
+      <Layer>
+        {layers.map((layer: PlateLayer) => (
+          <KonvaGroup 
+            key={layer.id}
+            x={layer.x * 10 + 200}
+            y={-layer.y * 10 + 150}
+            draggable
+            onDragEnd={(e) => {
+              const x = (e.target.x() - 200) / 10;
+              const y = -(e.target.y() - 150) / 10;
+              onUpdateLayer(layer.id, x, y);
+            }}
+            onClick={() => setActiveLayerId(layer.id)}
+          >
+            {layer.type === "text" ? (
+                <KonvaText 
+                    text={layer.content}
+                    fontSize={layer.size * 5}
+                    fill={layer.color}
+                    align="center"
+                    offsetX={(layer.content.length * layer.size * 2.5) / 2}
+                />
+            ) : (
+                <Rect 
+                    width={layer.size * 5}
+                    height={layer.size * 5}
+                    fill={layer.color}
+                    offsetX={(layer.size * 5) / 2}
+                    offsetY={(layer.size * 5) / 2}
+                />
+            )}
+            {activeLayerId === layer.id && (
+                <Rect 
+                    width={layer.size * 6}
+                    height={layer.size * 6}
+                    stroke="#00E5FF"
+                    strokeWidth={2}
+                    offsetX={(layer.size * 6) / 2}
+                    offsetY={(layer.size * 6) / 2}
+                />
+            )}
+          </KonvaGroup>
+        ))}
+      </Layer>
+    </Stage>
+  );
+}
+
 interface PlateLayer {
   id: string;
   type: "text" | "icon";
@@ -27,7 +79,7 @@ interface PlateLayer {
 }
 
 interface PlateConfig {
-  shape: "rounded_rect" | "circle" | "oval" | "hexagon" | "shield" | "banner";
+  shape: "rounded_rect" | "circle" | "oval" | "hexagon" | "shield" | "banner" | "text_based";
   width: number;
   height: number;
   thickness: number;
@@ -39,6 +91,7 @@ interface PlateConfig {
   mountingHoles: "none" | "top_center" | "two_sides" | "four_corners";
   holeSize: number;
   materialFinish: "matte" | "glossy" | "textured" | "wood" | "carbon";
+  fontFamily: string;
 }
 
 interface SavedPlate {
@@ -246,77 +299,106 @@ function getProceduralIconShape(iconId: string): THREE.Shape {
 }
 
 // Draw base plate shape with proper dimensions
-function getPlateBaseShape(config: PlateConfig): THREE.Shape {
+function getPlateBaseShape(config: PlateConfig, layers?: PlateLayer[]): THREE.Shape {
   const shape = new THREE.Shape();
   const w = config.width / 10; // scale down for viewport (e.g. 200mm = 20 units)
   const h = config.height / 10;
   const r = config.borderRadius / 10;
 
-  switch (config.shape) {
-    case "rounded_rect":
-      shape.moveTo(-w/2 + r, -h/2);
-      shape.lineTo(w/2 - r, -h/2);
-      shape.quadraticCurveTo(w/2, -h/2, w/2, -h/2 + r);
-      shape.lineTo(w/2, h/2 - r);
-      shape.quadraticCurveTo(w/2, h/2, w/2 - r, h/2);
-      shape.lineTo(-w/2 + r, h/2);
-      shape.quadraticCurveTo(-w/2, h/2, -w/2, h/2 - r);
-      shape.lineTo(-w/2, -h/2 + r);
-      shape.quadraticCurveTo(-w/2, -h/2, -w/2 + r, -h/2);
-      break;
-
-    case "circle":
-      const rad = w / 2;
-      shape.absarc(0, 0, rad, 0, Math.PI * 2, false);
-      break;
-
-    case "oval":
-      const rx = w / 2;
-      const ry = h / 2;
-      for (let i = 0; i <= 64; i++) {
-        const angle = (i / 64) * Math.PI * 2;
-        const x = Math.cos(angle) * rx;
-        const y = Math.sin(angle) * ry;
-        if (i === 0) shape.moveTo(x, y);
-        else shape.lineTo(x, y);
-      }
-      break;
-
-    case "hexagon":
-      const hexW = w / 2;
-      const hexH = h / 2;
-      shape.moveTo(0, hexH);
-      shape.lineTo(hexW, hexH * 0.5);
-      shape.lineTo(hexW, -hexH * 0.5);
-      shape.moveTo(0, -hexH); // Fix connection
-      shape.lineTo(0, -hexH);
-      shape.lineTo(-hexW, -hexH * 0.5);
-      shape.lineTo(-hexW, hexH * 0.5);
+  if (config.shape === "text_based") {
+    if (!layers || layers.length === 0) {
+      shape.moveTo(-w / 2, -h / 2);
+      shape.lineTo(w / 2, -h / 2);
+      shape.lineTo(w / 2, h / 2);
+      shape.lineTo(-w / 2, h / 2);
       shape.closePath();
-      break;
-
-    case "shield":
-      const sW = w / 2;
-      const sH = h / 2;
-      shape.moveTo(0, sH);
-      shape.lineTo(sW, sH * 0.7);
-      shape.bezierCurveTo(sW, 0, sW * 0.8, -sH * 0.7, 0, -sH);
-      shape.bezierCurveTo(-sW * 0.8, -sH * 0.7, -sW, 0, -sW, sH * 0.7);
+    } else {
+      let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+      layers.forEach(layer => {
+        if (!layer.visible) return;
+        const padding = layer.size * 0.8;
+        minX = Math.min(minX, layer.x - padding);
+        maxX = Math.max(maxX, layer.x + padding);
+        minY = Math.min(minY, layer.y - padding);
+        maxY = Math.max(maxY, layer.y + padding);
+      });
+      const padding = 2;
+      minX -= padding; maxX += padding;
+      minY -= padding; maxY += padding;
+      shape.moveTo(minX, minY);
+      shape.lineTo(maxX, minY);
+      shape.lineTo(maxX, maxY);
+      shape.lineTo(minX, maxY);
       shape.closePath();
-      break;
+    }
+  } else {
+    switch (config.shape) {
+      case "rounded_rect":
+        shape.moveTo(-w / 2 + r, -h / 2);
+        shape.lineTo(w / 2 - r, -h / 2);
+        shape.quadraticCurveTo(w / 2, -h / 2, w / 2, -h / 2 + r);
+        shape.lineTo(w / 2, h / 2 - r);
+        shape.quadraticCurveTo(w / 2, h / 2, w / 2 - r, h / 2);
+        shape.lineTo(-w / 2 + r, h / 2);
+        shape.quadraticCurveTo(-w / 2, h / 2, -w / 2, h / 2 - r);
+        shape.lineTo(-w / 2, -h / 2 + r);
+        shape.quadraticCurveTo(-w / 2, -h / 2, -w / 2 + r, -h / 2);
+        break;
 
-    case "banner":
-      const bW = w / 2;
-      const bH = h / 2;
-      shape.moveTo(-bW, bH);
-      shape.lineTo(bW, bH);
-      shape.lineTo(bW - (bW * 0.15), 0); // Indented right
-      shape.lineTo(bW, -bH);
-      shape.lineTo(-bW, -bH);
-      shape.lineTo(-bW + (bW * 0.15), 0); // Indented left
-      shape.closePath();
-      break;
+      case "circle":
+        const rad = w / 2;
+        shape.absarc(0, 0, rad, 0, Math.PI * 2, false);
+        break;
+
+      case "oval":
+        const rx = w / 2;
+        const ry = h / 2;
+        for (let i = 0; i <= 64; i++) {
+          const angle = (i / 64) * Math.PI * 2;
+          const x = Math.cos(angle) * rx;
+          const y = Math.sin(angle) * ry;
+          if (i === 0) shape.moveTo(x, y);
+          else shape.lineTo(x, y);
+        }
+        break;
+
+      case "hexagon":
+        const hexW = w / 2;
+        const hexH = h / 2;
+        shape.moveTo(0, hexH);
+        shape.lineTo(hexW, hexH * 0.5);
+        shape.lineTo(hexW, -hexH * 0.5);
+        shape.moveTo(0, -hexH); // Fix connection
+        shape.lineTo(0, -hexH);
+        shape.lineTo(-hexW, -hexH * 0.5);
+        shape.lineTo(-hexW, hexH * 0.5);
+        shape.closePath();
+        break;
+
+      case "shield":
+        const sW = w / 2;
+        const sH = h / 2;
+        shape.moveTo(0, sH);
+        shape.lineTo(sW, sH * 0.7);
+        shape.bezierCurveTo(sW, 0, sW * 0.8, -sH * 0.7, 0, -sH);
+        shape.bezierCurveTo(-sW * 0.8, -sH * 0.7, -sW, 0, -sW, sH * 0.7);
+        shape.closePath();
+        break;
+
+      case "banner":
+        const bW = w / 2;
+        const bH = h / 2;
+        shape.moveTo(-bW, bH);
+        shape.lineTo(bW, bH);
+        shape.lineTo(bW - (bW * 0.15), 0); // Indented right
+        shape.lineTo(bW, -bH);
+        shape.lineTo(-bW, -bH);
+        shape.lineTo(-bW + (bW * 0.15), 0); // Indented left
+        shape.closePath();
+        break;
+    }
   }
+
 
   // Handle Mounting Holes directly in the shape (Subtractive Path)
   if (config.mountingHoles !== "none") {
@@ -398,7 +480,9 @@ function Scene({
   font, 
   explodedView,
   showWireframe,
-  setActiveLayerId
+  setActiveLayerId,
+  updateLayerPosition,
+  setControlsEnabled
 }: { 
   config: PlateConfig; 
   layers: PlateLayer[]; 
@@ -407,12 +491,24 @@ function Scene({
   explodedView: number;
   showWireframe: boolean;
   setActiveLayerId: (id: string | null) => void;
+  updateLayerPosition: (id: string, x: number, y: number) => void;
+  setControlsEnabled: (enabled: boolean) => void;
 }) {
-  const { invalidate } = useThree();
+  const { invalidate, raycaster, camera, scene } = useThree();
+  const draggingLayerId = useRef<string | null>(null);
+
+  // Helper to calculate plane intersection
+  const getPointerPosition = (e: any, zOffset: number) => {
+    raycaster.setFromCamera(e.pointer, camera);
+    const plane = new THREE.Plane(new THREE.Vector3(0, 0, 1), -zOffset);
+    const target = new THREE.Vector3();
+    raycaster.ray.intersectPlane(plane, target);
+    return target;
+  };
 
   const plateBaseShape = useMemo(() => {
-    return getPlateBaseShape(config);
-  }, [config]);
+    return getPlateBaseShape(config, layers);
+  }, [config, layers]);
 
   const extrudeSettings = useMemo(() => ({
     steps: 1,
@@ -460,20 +556,22 @@ function Scene({
   return (
     <group position={[0, 0, 0]}>
       {/* 1. BASE PLATE MESH */}
-      <mesh 
-        castShadow 
-        receiveShadow
-        onClick={(e) => {
-          e.stopPropagation();
-          setActiveLayerId(null);
-        }}
-      >
-        <extrudeGeometry args={[plateBaseShape, extrudeSettings]} />
-        <meshStandardMaterial {...materialProps} />
-      </mesh>
+      {config.shape !== "text_based" && (
+        <mesh 
+          castShadow 
+          receiveShadow
+          onClick={(e) => {
+            e.stopPropagation();
+            setActiveLayerId(null);
+          }}
+        >
+          <extrudeGeometry args={[plateBaseShape, extrudeSettings]} />
+          <meshStandardMaterial {...materialProps} />
+        </mesh>
+      )}
 
       {/* Plate Border Line Relief decoration */}
-      {config.borderStyle !== "none" && (
+      {config.borderStyle !== "none" && config.shape !== "text_based" && (
         <mesh 
           position={[0, 0, (config.thickness / 10) + (config.borderStyle === "relief" ? 0.05 : -0.05)]}
           onClick={(e) => {
@@ -514,9 +612,6 @@ function Scene({
         const zOffset = (config.thickness / 10) + (explodedView * index * 1.5) + (layer.style === "engraved" ? -0.1 : 0.01);
         const rotationRad = (layer.rotation * Math.PI) / 180;
 
-        // Visual highlight ring if selected
-        const highlightColor = isSelected ? "#00E5FF" : layer.color;
-
         return (
           <group 
             key={layer.id} 
@@ -525,6 +620,28 @@ function Scene({
             onClick={(e) => {
               e.stopPropagation();
               setActiveLayerId(layer.id);
+            }}
+            onPointerDown={(e) => {
+              e.stopPropagation();
+              draggingLayerId.current = layer.id;
+              setControlsEnabled(false);
+            }}
+            onPointerMove={(e) => {
+              if (draggingLayerId.current === layer.id) {
+                const pos = getPointerPosition(e, zOffset);
+                updateLayerPosition(layer.id, pos.x, pos.y);
+                invalidate();
+              }
+            }}
+            onPointerUp={() => {
+              draggingLayerId.current = null;
+              setControlsEnabled(true);
+            }}
+            onPointerLeave={() => {
+              if (draggingLayerId.current === layer.id) {
+                draggingLayerId.current = null;
+                setControlsEnabled(true);
+              }
             }}
           >
             {layer.type === "icon" ? (
@@ -596,6 +713,13 @@ function Scene({
 }
 
 // Preset Library
+const AVAILABLE_FONTS = {
+  helvetiker_regular: "https://unpkg.com/three@0.150.0/examples/fonts/helvetiker_regular.typeface.json",
+  optimer_regular: "https://unpkg.com/three@0.150.0/examples/fonts/optimer_regular.typeface.json",
+  gentilis_regular: "https://unpkg.com/three@0.150.0/examples/fonts/gentilis_regular.typeface.json",
+  droid_sans_bold: "https://unpkg.com/three@0.150.0/examples/fonts/droid/droid_sans_bold.typeface.json"
+};
+
 const PLATE_PRESETS: { name: string; desc: string; config: PlateConfig; layers: PlateLayer[] }[] = [
   {
     name: "Gamer Tag 'Player 1'",
@@ -612,7 +736,8 @@ const PLATE_PRESETS: { name: string; desc: string; config: PlateConfig; layers: 
       borderHeight: 4,
       mountingHoles: "two_sides",
       holeSize: 4.5,
-      materialFinish: "carbon"
+      materialFinish: "carbon",
+      fontFamily: "helvetiker_regular"
     },
     layers: [
       {
@@ -658,7 +783,8 @@ const PLATE_PRESETS: { name: string; desc: string; config: PlateConfig; layers: 
       borderHeight: 3,
       mountingHoles: "top_center",
       holeSize: 5.0,
-      materialFinish: "wood"
+      materialFinish: "wood",
+      fontFamily: "gentilis_regular"
     },
     layers: [
       {
@@ -717,7 +843,8 @@ const PLATE_PRESETS: { name: string; desc: string; config: PlateConfig; layers: 
       borderHeight: 4,
       mountingHoles: "four_corners",
       holeSize: 4.0,
-      materialFinish: "matte"
+      materialFinish: "matte",
+      fontFamily: "droid_sans_bold"
     },
     layers: [
       {
@@ -776,7 +903,8 @@ const PLATE_PRESETS: { name: string; desc: string; config: PlateConfig; layers: 
       borderHeight: 2,
       mountingHoles: "none",
       holeSize: 4.0,
-      materialFinish: "glossy"
+      materialFinish: "glossy",
+      fontFamily: "optimer_regular"
     },
     layers: [
       {
@@ -823,7 +951,8 @@ export default function PlateCreator() {
     borderHeight: 3,
     mountingHoles: "two_sides",
     holeSize: 4.0,
-    materialFinish: "carbon"
+    materialFinish: "carbon",
+    fontFamily: "helvetiker_regular"
   });
 
   // Overlapping Layers list
@@ -857,6 +986,7 @@ export default function PlateCreator() {
   ]);
 
   const [activeLayerId, setActiveLayerId] = useState<string | null>("text-1");
+  const [viewMode, setViewMode] = useState<"2d" | "3d">("3d");
   const [explodedView, setExplodedView] = useState<number>(0.0); // 0 = flat, 1 = maximum separated
   const [showWireframe, setShowWireframe] = useState<boolean>(false);
   const [font, setFont] = useState<Font | null>(null);
@@ -868,24 +998,23 @@ export default function PlateCreator() {
 
   // Font loading system
   useEffect(() => {
-    if (fontLoadingState === "idle") {
-      setFontLoadingState("loading");
-      const loader = new FontLoader();
-      // Fetch Helvetica-like regular json font from unpkg standard Three.js mirror
-      loader.load(
-        "https://unpkg.com/three@0.150.0/examples/fonts/helvetiker_regular.typeface.json",
-        (loadedFont) => {
-          setFont(loadedFont);
-          setFontLoadingState("loaded");
-        },
-        undefined,
-        (err) => {
-          console.error("FontLoader failed to load web typeface:", err);
-          setFontLoadingState("error");
-        }
-      );
-    }
-  }, [fontLoadingState]);
+    setFontLoadingState("loading");
+    const loader = new FontLoader();
+    const fontUrl = AVAILABLE_FONTS[config.fontFamily as keyof typeof AVAILABLE_FONTS] || AVAILABLE_FONTS.helvetiker_regular;
+    
+    loader.load(
+      fontUrl,
+      (loadedFont) => {
+        setFont(loadedFont);
+        setFontLoadingState("loaded");
+      },
+      undefined,
+      (err) => {
+        console.error("FontLoader failed to load web typeface:", err);
+        setFontLoadingState("error");
+      }
+    );
+  }, [config.fontFamily]);
 
   // Load user saved plates library
   useEffect(() => {
@@ -1057,7 +1186,7 @@ export default function PlateCreator() {
         const group = new THREE.Group();
         
         // Add Base plate mesh
-        const baseShape = getPlateBaseShape(config);
+        const baseShape = getPlateBaseShape(config, layers);
         const extrudeSettings = {
           steps: 1,
           depth: config.thickness / 10,
@@ -1325,61 +1454,80 @@ export default function PlateCreator() {
             {/* Viewport header tags */}
             <div className="absolute top-4 left-4 z-10 flex items-center gap-1.5 bg-black/60 backdrop-blur border border-zinc-800/80 px-2.5 py-1 rounded font-mono text-[8.5px] text-zinc-400">
               <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
-              <span>PREVIEW EM TEMPO REAL (3D)</span>
+              <span>{viewMode === '3d' ? 'PREVIEW EM TEMPO REAL (3D)' : 'EDITOR 2D (ARRRASTE E SOLTE)'}</span>
             </div>
 
             <div className="absolute top-4 right-4 z-10 flex items-center gap-1.5">
               <button
-                onClick={() => setShowWireframe(!showWireframe)}
-                className={`p-1.5 rounded backdrop-blur text-[8px] font-mono border transition-all cursor-pointer ${
-                  showWireframe 
-                    ? "bg-[#00E5FF]/10 text-[#00E5FF] border-[#00E5FF]/40" 
-                    : "bg-black/60 text-zinc-400 border-zinc-800"
-                }`}
-                title="Alternar Modo de Grade"
+                onClick={() => setViewMode(viewMode === '3d' ? '2d' : '3d')}
+                className="p-1.5 rounded backdrop-blur text-[8px] font-mono border transition-all cursor-pointer bg-black/60 text-zinc-400 border-zinc-800"
               >
-                WIREFRAME
+                {viewMode === '3d' ? 'MODO 2D' : 'MODO 3D'}
               </button>
+              {viewMode === '3d' && (
+                <button
+                    onClick={() => setShowWireframe(!showWireframe)}
+                    className={`p-1.5 rounded backdrop-blur text-[8px] font-mono border transition-all cursor-pointer ${
+                    showWireframe 
+                        ? "bg-[#00E5FF]/10 text-[#00E5FF] border-[#00E5FF]/40" 
+                        : "bg-black/60 text-zinc-400 border-zinc-800"
+                    }`}
+                    title="Alternar Modo de Grade"
+                >
+                    WIREFRAME
+                </button>
+              )}
             </div>
 
-            {/* THREE.JS CANVAS */}
+            {/* CANVAS AREA */}
             <div className="w-full h-full">
-              <Canvas 
-                orthographic 
-                camera={{ zoom: 12, position: [0, 0, 30] }} 
-                shadows
-              >
-                <ambientLight intensity={1.5} />
-                <directionalLight 
-                  position={[10, 15, 20]} 
-                  intensity={2.2} 
-                  castShadow 
-                  shadow-mapSize-width={1024} 
-                  shadow-mapSize-height={1024} 
-                />
-                <pointLight position={[-10, -10, 15]} intensity={0.5} />
-                
-                <Scene 
-                  config={config} 
-                  layers={layers} 
-                  activeLayerId={activeLayerId}
-                  font={font}
-                  explodedView={explodedView}
-                  showWireframe={showWireframe}
-                  setActiveLayerId={setActiveLayerId}
-                  updateLayerPosition={updateLayerPosition}
-                  setControlsEnabled={setControlsEnabled}
-                />
+              {viewMode === "3d" ? (
+                <Canvas 
+                  orthographic 
+                  camera={{ zoom: 12, position: [0, 0, 30] }} 
+                  shadows
+                >
+                  <ambientLight intensity={1.5} />
+                  <directionalLight 
+                    position={[10, 15, 20]} 
+                    intensity={2.2} 
+                    castShadow 
+                    shadow-mapSize-width={1024} 
+                    shadow-mapSize-height={1024} 
+                  />
+                  <pointLight position={[-10, -10, 15]} intensity={0.5} />
+                  
+                  <Scene 
+                    config={config} 
+                    layers={layers} 
+                    activeLayerId={activeLayerId}
+                    font={font}
+                    explodedView={explodedView}
+                    showWireframe={showWireframe}
+                    setActiveLayerId={setActiveLayerId}
+                    updateLayerPosition={updateLayerPosition}
+                    setControlsEnabled={setControlsEnabled}
+                  />
 
-                <OrbitControls 
-                  enabled={controlsEnabled}
-                  enableDamping 
-                  dampingFactor={0.05} 
-                  maxPolarAngle={Math.PI / 2} 
-                  minZoom={6}
-                  maxZoom={30}
-                />
-              </Canvas>
+                  <OrbitControls 
+                    enabled={controlsEnabled}
+                    enableDamping 
+                    dampingFactor={0.05} 
+                    maxPolarAngle={Math.PI / 2} 
+                    minZoom={6}
+                    maxZoom={30}
+                  />
+                </Canvas>
+              ) : (
+                <div className="flex items-center justify-center w-full h-full p-4">
+                  <PlateEditor2D 
+                    layers={layers}
+                    onUpdateLayer={updateLayerPosition}
+                    activeLayerId={activeLayerId}
+                    setActiveLayerId={setActiveLayerId}
+                  />
+                </div>
+              )}
             </div>
 
             {/* Viewport bottom controls HUD */}
@@ -1459,7 +1607,8 @@ export default function PlateCreator() {
                       { id: "oval", label: "Elipse/Oval" },
                       { id: "hexagon", label: "Hexágono" },
                       { id: "shield", label: "Escudo" },
-                      { id: "banner", label: "Estandarte" }
+                      { id: "banner", label: "Estandarte" },
+                      { id: "text_based", label: "Texto Base" }
                     ].map((shape) => (
                       <button
                         key={shape.id}
@@ -1561,6 +1710,22 @@ export default function PlateCreator() {
                       onChange={(e) => setConfig(prev => ({ ...prev, borderWidth: parseInt(e.target.value) || 5 }))}
                       className="bg-black/80 border border-zinc-800 disabled:opacity-30 rounded px-2.5 py-1.5 text-xs text-white outline-none w-full font-mono"
                     />
+                  </div>
+                </div>
+
+                {/* Font selector for text layers */}
+                <div className="grid grid-cols-1 gap-3 border-t border-zinc-900/60 pt-3">
+                  <div>
+                    <label className="text-[8.5px] font-mono text-zinc-400 uppercase tracking-widest block font-bold mb-1">Fonte do Texto</label>
+                    <select
+                      value={config.fontFamily}
+                      onChange={(e) => setConfig(prev => ({ ...prev, fontFamily: e.target.value }))}
+                      className="bg-black/80 border border-zinc-800 rounded px-2.5 py-1.5 text-xs text-white outline-none w-full cursor-pointer font-mono"
+                    >
+                      {Object.keys(AVAILABLE_FONTS).map(fontKey => (
+                        <option key={fontKey} value={fontKey}>{fontKey.replace('_', ' ')}</option>
+                      ))}
+                    </select>
                   </div>
                 </div>
 
