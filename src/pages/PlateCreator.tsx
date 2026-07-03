@@ -5,65 +5,13 @@ import * as THREE from "three";
 import { FontLoader, Font } from "three/examples/jsm/loaders/FontLoader.js";
 import { TextGeometry } from "three/examples/jsm/geometries/TextGeometry.js";
 import { STLExporter } from "three/examples/jsm/exporters/STLExporter.js";
-import { Stage, Layer, Rect, Text as KonvaText, Group as KonvaGroup } from 'react-konva';
 import { 
   Sparkles, Layers, Download, Plus, Trash2, Sliders, HelpCircle,
   Eye, EyeOff, RotateCcw, Copy, Folder, BookOpen, Save, FileDown,
   Info, Settings, LayoutGrid, Check, AlertTriangle, ArrowUpDown, Move, Type
 } from "lucide-react";
 
-// Editor 2D Component
-function PlateEditor2D({ layers, onUpdateLayer, activeLayerId, setActiveLayerId }: any) {
-  return (
-    <Stage width={400} height={300} className="w-full h-full bg-zinc-950 border border-zinc-900 rounded-lg">
-      <Layer>
-        {layers.map((layer: PlateLayer) => (
-          <KonvaGroup 
-            key={layer.id}
-            x={layer.x * 10 + 200}
-            y={-layer.y * 10 + 150}
-            draggable
-            onDragEnd={(e) => {
-              const x = (e.target.x() - 200) / 10;
-              const y = -(e.target.y() - 150) / 10;
-              onUpdateLayer(layer.id, x, y);
-            }}
-            onClick={() => setActiveLayerId(layer.id)}
-          >
-            {layer.type === "text" ? (
-                <KonvaText 
-                    text={layer.content}
-                    fontSize={layer.size * 5}
-                    fill={layer.color}
-                    align="center"
-                    offsetX={(layer.content.length * layer.size * 2.5) / 2}
-                />
-            ) : (
-                <Rect 
-                    width={layer.size * 5}
-                    height={layer.size * 5}
-                    fill={layer.color}
-                    offsetX={(layer.size * 5) / 2}
-                    offsetY={(layer.size * 5) / 2}
-                />
-            )}
-            {activeLayerId === layer.id && (
-                <Rect 
-                    width={layer.size * 6}
-                    height={layer.size * 6}
-                    stroke="#00E5FF"
-                    strokeWidth={2}
-                    offsetX={(layer.size * 6) / 2}
-                    offsetY={(layer.size * 6) / 2}
-                />
-            )}
-          </KonvaGroup>
-        ))}
-      </Layer>
-    </Stage>
-  );
-}
-
+// Types
 interface PlateLayer {
   id: string;
   type: "text" | "icon";
@@ -91,7 +39,6 @@ interface PlateConfig {
   mountingHoles: "none" | "top_center" | "two_sides" | "four_corners";
   holeSize: number;
   materialFinish: "matte" | "glossy" | "textured" | "wood" | "carbon";
-  fontFamily: string;
 }
 
 interface SavedPlate {
@@ -498,9 +445,9 @@ function Scene({
   const draggingLayerId = useRef<string | null>(null);
 
   // Helper to calculate plane intersection
-  const getPointerPosition = (e: any, zOffset: number) => {
+  const getPointerPosition = (e: any) => {
     raycaster.setFromCamera(e.pointer, camera);
-    const plane = new THREE.Plane(new THREE.Vector3(0, 0, 1), -zOffset);
+    const plane = new THREE.Plane(new THREE.Vector3(0, 0, 1), 0);
     const target = new THREE.Vector3();
     raycaster.ray.intersectPlane(plane, target);
     return target;
@@ -628,7 +575,7 @@ function Scene({
             }}
             onPointerMove={(e) => {
               if (draggingLayerId.current === layer.id) {
-                const pos = getPointerPosition(e, zOffset);
+                const pos = getPointerPosition(e);
                 updateLayerPosition(layer.id, pos.x, pos.y);
                 invalidate();
               }
@@ -713,13 +660,6 @@ function Scene({
 }
 
 // Preset Library
-const AVAILABLE_FONTS = {
-  helvetiker_regular: "https://unpkg.com/three@0.150.0/examples/fonts/helvetiker_regular.typeface.json",
-  optimer_regular: "https://unpkg.com/three@0.150.0/examples/fonts/optimer_regular.typeface.json",
-  gentilis_regular: "https://unpkg.com/three@0.150.0/examples/fonts/gentilis_regular.typeface.json",
-  droid_sans_bold: "https://unpkg.com/three@0.150.0/examples/fonts/droid/droid_sans_bold.typeface.json"
-};
-
 const PLATE_PRESETS: { name: string; desc: string; config: PlateConfig; layers: PlateLayer[] }[] = [
   {
     name: "Gamer Tag 'Player 1'",
@@ -736,8 +676,7 @@ const PLATE_PRESETS: { name: string; desc: string; config: PlateConfig; layers: 
       borderHeight: 4,
       mountingHoles: "two_sides",
       holeSize: 4.5,
-      materialFinish: "carbon",
-      fontFamily: "helvetiker_regular"
+      materialFinish: "carbon"
     },
     layers: [
       {
@@ -783,8 +722,7 @@ const PLATE_PRESETS: { name: string; desc: string; config: PlateConfig; layers: 
       borderHeight: 3,
       mountingHoles: "top_center",
       holeSize: 5.0,
-      materialFinish: "wood",
-      fontFamily: "gentilis_regular"
+      materialFinish: "wood"
     },
     layers: [
       {
@@ -843,8 +781,7 @@ const PLATE_PRESETS: { name: string; desc: string; config: PlateConfig; layers: 
       borderHeight: 4,
       mountingHoles: "four_corners",
       holeSize: 4.0,
-      materialFinish: "matte",
-      fontFamily: "droid_sans_bold"
+      materialFinish: "matte"
     },
     layers: [
       {
@@ -903,8 +840,7 @@ const PLATE_PRESETS: { name: string; desc: string; config: PlateConfig; layers: 
       borderHeight: 2,
       mountingHoles: "none",
       holeSize: 4.0,
-      materialFinish: "glossy",
-      fontFamily: "optimer_regular"
+      materialFinish: "glossy"
     },
     layers: [
       {
@@ -951,8 +887,7 @@ export default function PlateCreator() {
     borderHeight: 3,
     mountingHoles: "two_sides",
     holeSize: 4.0,
-    materialFinish: "carbon",
-    fontFamily: "helvetiker_regular"
+    materialFinish: "carbon"
   });
 
   // Overlapping Layers list
@@ -986,7 +921,6 @@ export default function PlateCreator() {
   ]);
 
   const [activeLayerId, setActiveLayerId] = useState<string | null>("text-1");
-  const [viewMode, setViewMode] = useState<"2d" | "3d">("3d");
   const [explodedView, setExplodedView] = useState<number>(0.0); // 0 = flat, 1 = maximum separated
   const [showWireframe, setShowWireframe] = useState<boolean>(false);
   const [font, setFont] = useState<Font | null>(null);
@@ -998,23 +932,24 @@ export default function PlateCreator() {
 
   // Font loading system
   useEffect(() => {
-    setFontLoadingState("loading");
-    const loader = new FontLoader();
-    const fontUrl = AVAILABLE_FONTS[config.fontFamily as keyof typeof AVAILABLE_FONTS] || AVAILABLE_FONTS.helvetiker_regular;
-    
-    loader.load(
-      fontUrl,
-      (loadedFont) => {
-        setFont(loadedFont);
-        setFontLoadingState("loaded");
-      },
-      undefined,
-      (err) => {
-        console.error("FontLoader failed to load web typeface:", err);
-        setFontLoadingState("error");
-      }
-    );
-  }, [config.fontFamily]);
+    if (fontLoadingState === "idle") {
+      setFontLoadingState("loading");
+      const loader = new FontLoader();
+      // Fetch Helvetica-like regular json font from unpkg standard Three.js mirror
+      loader.load(
+        "https://unpkg.com/three@0.150.0/examples/fonts/helvetiker_regular.typeface.json",
+        (loadedFont) => {
+          setFont(loadedFont);
+          setFontLoadingState("loaded");
+        },
+        undefined,
+        (err) => {
+          console.error("FontLoader failed to load web typeface:", err);
+          setFontLoadingState("error");
+        }
+      );
+    }
+  }, [fontLoadingState]);
 
   // Load user saved plates library
   useEffect(() => {
@@ -1454,80 +1389,61 @@ export default function PlateCreator() {
             {/* Viewport header tags */}
             <div className="absolute top-4 left-4 z-10 flex items-center gap-1.5 bg-black/60 backdrop-blur border border-zinc-800/80 px-2.5 py-1 rounded font-mono text-[8.5px] text-zinc-400">
               <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
-              <span>{viewMode === '3d' ? 'PREVIEW EM TEMPO REAL (3D)' : 'EDITOR 2D (ARRRASTE E SOLTE)'}</span>
+              <span>PREVIEW EM TEMPO REAL (3D)</span>
             </div>
 
             <div className="absolute top-4 right-4 z-10 flex items-center gap-1.5">
               <button
-                onClick={() => setViewMode(viewMode === '3d' ? '2d' : '3d')}
-                className="p-1.5 rounded backdrop-blur text-[8px] font-mono border transition-all cursor-pointer bg-black/60 text-zinc-400 border-zinc-800"
+                onClick={() => setShowWireframe(!showWireframe)}
+                className={`p-1.5 rounded backdrop-blur text-[8px] font-mono border transition-all cursor-pointer ${
+                  showWireframe 
+                    ? "bg-[#00E5FF]/10 text-[#00E5FF] border-[#00E5FF]/40" 
+                    : "bg-black/60 text-zinc-400 border-zinc-800"
+                }`}
+                title="Alternar Modo de Grade"
               >
-                {viewMode === '3d' ? 'MODO 2D' : 'MODO 3D'}
+                WIREFRAME
               </button>
-              {viewMode === '3d' && (
-                <button
-                    onClick={() => setShowWireframe(!showWireframe)}
-                    className={`p-1.5 rounded backdrop-blur text-[8px] font-mono border transition-all cursor-pointer ${
-                    showWireframe 
-                        ? "bg-[#00E5FF]/10 text-[#00E5FF] border-[#00E5FF]/40" 
-                        : "bg-black/60 text-zinc-400 border-zinc-800"
-                    }`}
-                    title="Alternar Modo de Grade"
-                >
-                    WIREFRAME
-                </button>
-              )}
             </div>
 
-            {/* CANVAS AREA */}
+            {/* THREE.JS CANVAS */}
             <div className="w-full h-full">
-              {viewMode === "3d" ? (
-                <Canvas 
-                  orthographic 
-                  camera={{ zoom: 12, position: [0, 0, 30] }} 
-                  shadows
-                >
-                  <ambientLight intensity={1.5} />
-                  <directionalLight 
-                    position={[10, 15, 20]} 
-                    intensity={2.2} 
-                    castShadow 
-                    shadow-mapSize-width={1024} 
-                    shadow-mapSize-height={1024} 
-                  />
-                  <pointLight position={[-10, -10, 15]} intensity={0.5} />
-                  
-                  <Scene 
-                    config={config} 
-                    layers={layers} 
-                    activeLayerId={activeLayerId}
-                    font={font}
-                    explodedView={explodedView}
-                    showWireframe={showWireframe}
-                    setActiveLayerId={setActiveLayerId}
-                    updateLayerPosition={updateLayerPosition}
-                    setControlsEnabled={setControlsEnabled}
-                  />
+              <Canvas 
+                orthographic 
+                camera={{ zoom: 12, position: [0, 0, 30] }} 
+                shadows
+              >
+                <ambientLight intensity={1.5} />
+                <directionalLight 
+                  position={[10, 15, 20]} 
+                  intensity={2.2} 
+                  castShadow 
+                  shadow-mapSize-width={1024} 
+                  shadow-mapSize-height={1024} 
+                />
+                <pointLight position={[-10, -10, 15]} intensity={0.5} />
+                
+                <Scene 
+                  config={config} 
+                  layers={layers} 
+                  activeLayerId={activeLayerId}
+                  font={font}
+                  explodedView={explodedView}
+                  showWireframe={showWireframe}
+                  setActiveLayerId={setActiveLayerId}
+                  updateLayerPosition={updateLayerPosition}
+                  setControlsEnabled={setControlsEnabled}
+                />
 
-                  <OrbitControls 
-                    enabled={controlsEnabled}
-                    enableDamping 
-                    dampingFactor={0.05} 
-                    maxPolarAngle={Math.PI / 2} 
-                    minZoom={6}
-                    maxZoom={30}
-                  />
-                </Canvas>
-              ) : (
-                <div className="flex items-center justify-center w-full h-full p-4">
-                  <PlateEditor2D 
-                    layers={layers}
-                    onUpdateLayer={updateLayerPosition}
-                    activeLayerId={activeLayerId}
-                    setActiveLayerId={setActiveLayerId}
-                  />
-                </div>
-              )}
+                <OrbitControls 
+                  enabled={controlsEnabled}
+                  enableDamping 
+                  dampingFactor={0.05} 
+                  maxPolarAngle={Math.PI / 2} 
+                  minZoom={6}
+                  maxZoom={30}
+                />
+              </Canvas>
             </div>
 
             {/* Viewport bottom controls HUD */}
@@ -1710,22 +1626,6 @@ export default function PlateCreator() {
                       onChange={(e) => setConfig(prev => ({ ...prev, borderWidth: parseInt(e.target.value) || 5 }))}
                       className="bg-black/80 border border-zinc-800 disabled:opacity-30 rounded px-2.5 py-1.5 text-xs text-white outline-none w-full font-mono"
                     />
-                  </div>
-                </div>
-
-                {/* Font selector for text layers */}
-                <div className="grid grid-cols-1 gap-3 border-t border-zinc-900/60 pt-3">
-                  <div>
-                    <label className="text-[8.5px] font-mono text-zinc-400 uppercase tracking-widest block font-bold mb-1">Fonte do Texto</label>
-                    <select
-                      value={config.fontFamily}
-                      onChange={(e) => setConfig(prev => ({ ...prev, fontFamily: e.target.value }))}
-                      className="bg-black/80 border border-zinc-800 rounded px-2.5 py-1.5 text-xs text-white outline-none w-full cursor-pointer font-mono"
-                    >
-                      {Object.keys(AVAILABLE_FONTS).map(fontKey => (
-                        <option key={fontKey} value={fontKey}>{fontKey.replace('_', ' ')}</option>
-                      ))}
-                    </select>
                   </div>
                 </div>
 

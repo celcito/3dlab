@@ -4,11 +4,10 @@ import { OrbitControls, Grid } from "@react-three/drei";
 import * as THREE from "three";
 import { SVGLoader } from "three/examples/jsm/loaders/SVGLoader.js";
 import { STLExporter } from "three/examples/jsm/exporters/STLExporter.js";
-import * as opentype from "opentype.js";
 import { 
   Sparkles, Download, Upload, Sliders, HelpCircle, Eye, EyeOff, 
   RotateCcw, Info, Settings, LayoutGrid, Check, Play, Scissors,
-  Layers, Hammer, Palette, ArrowRight, Save, Trash2, Heart, RefreshCw, FileText, Folder, Type
+  Layers, Hammer, Palette, ArrowRight, Save, Trash2, Heart, RefreshCw, FileText, Folder
 } from "lucide-react";
 
 // --- TYPES & INTERFACES ---
@@ -731,8 +730,6 @@ export default function CookieCutterMaker() {
 
   // Vector layers parsed from SVG
   const [layers, setLayers] = useState<SVGPathLayer[]>([]);
-  const [view3D, setView3D] = useState(true);
-  const [loadedFont, setLoadedFont] = useState<opentype.Font | null>(null);
   
   // Local project list stored in localStorage
   const [savedProjects, setSavedProjects] = useState<SavedProject[]>([]);
@@ -934,19 +931,6 @@ export default function CookieCutterMaker() {
       triggerSuccess("Desenho SVG importado com sucesso!");
     };
     reader.readAsText(file);
-  };
-
-  const handleFontUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    const reader = new FileReader();
-    reader.onload = (e) => {
-      const buffer = e.target?.result as ArrayBuffer;
-      const font = opentype.parse(buffer);
-      setLoadedFont(font);
-      triggerSuccess("Fonte carregada com sucesso!");
-    };
-    reader.readAsArrayBuffer(file);
   };
 
   // --- LAYER TOGGLES ---
@@ -1290,60 +1274,39 @@ export default function CookieCutterMaker() {
               </button>
             </div>
 
-            {/* THREE.JS CANVAS or 2D SVG */}
-            <div className="w-full h-full relative">
-              {view3D ? (
-                <Canvas 
-                  orthographic 
-                  camera={{ zoom: 14, position: [0, 0, 35] }} 
-                  shadows
-                >
-                  <ambientLight intensity={1.4} />
-                  <directionalLight 
-                    position={[15, 20, 25]} 
-                    intensity={2.0} 
-                    castShadow 
-                    shadow-mapSize-width={1024} 
-                    shadow-mapSize-height={1024} 
-                  />
-                  <pointLight position={[-15, -15, 20]} intensity={0.4} />
-                  
-                  <CookieCutterScene 
-                    config={config} 
-                    layers={normalizedLayers} 
-                    outlinePoints={outlinePoints}
-                    detailRibbonShapes={detailRibbonShapes}
-                    miterBracePoints={[]}
-                  />
-  
-                  <OrbitControls 
-                    enableDamping 
-                    dampingFactor={0.05} 
-                    maxPolarAngle={Math.PI / 1.8} 
-                    minZoom={8}
-                    maxZoom={32}
-                  />
-                </Canvas>
-              ) : (
-                <svg viewBox="-50 -50 100 100" className="w-full h-full bg-black">
-                  {normalizedLayers.map(l => (
-                    <path 
-                      key={l.id} 
-                      d={l.points.map((p, i) => `${i === 0 ? 'M' : 'L'} ${p.x} ${p.y}`).join(' ') + (l.isClosed ? ' Z' : '')} 
-                      stroke={l.type === 'cutter' ? '#00E5FF' : '#ff5722'} 
-                      fill={l.isClosed ? (l.type === 'cutter' ? '#00E5FF33' : '#ff572233') : 'none'}
-                      strokeWidth="0.5"
-                    />
-                  ))}
-                </svg>
-              )}
-              <button 
-                onClick={() => setView3D(!view3D)}
-                className="absolute top-4 right-4 z-20 bg-zinc-800 text-white p-2 rounded-full hover:bg-zinc-700 transition-colors"
-                title="Alternar vista 2D/3D"
+            {/* THREE.JS CANVAS */}
+            <div className="w-full h-full">
+              <Canvas 
+                orthographic 
+                camera={{ zoom: 14, position: [0, 0, 35] }} 
+                shadows
               >
-                {view3D ? <LayoutGrid className="w-5 h-5" /> : <Hammer className="w-5 h-5" />}
-              </button>
+                <ambientLight intensity={1.4} />
+                <directionalLight 
+                  position={[15, 20, 25]} 
+                  intensity={2.0} 
+                  castShadow 
+                  shadow-mapSize-width={1024} 
+                  shadow-mapSize-height={1024} 
+                />
+                <pointLight position={[-15, -15, 20]} intensity={0.4} />
+                
+                <CookieCutterScene 
+                  config={config} 
+                  layers={normalizedLayers} 
+                  outlinePoints={outlinePoints}
+                  detailRibbonShapes={detailRibbonShapes}
+                  miterBracePoints={[]}
+                />
+
+                <OrbitControls 
+                  enableDamping 
+                  dampingFactor={0.05} 
+                  maxPolarAngle={Math.PI / 1.8} 
+                  minZoom={8}
+                  maxZoom={32}
+                />
+              </Canvas>
             </div>
 
             {/* Viewport bottom controls HUD */}
@@ -1518,69 +1481,6 @@ export default function CookieCutterMaker() {
                 <span className="block text-[10px] text-zinc-500 mt-1 font-mono">
                   Arraste ou clique para selecionar (.svg)
                 </span>
-              </div>
-
-              {/* FONT UPLOAD */}
-              <label className="flex items-center gap-2 bg-zinc-950 border border-zinc-900 text-zinc-300 p-4 rounded-lg text-xs font-bold uppercase tracking-wider hover:bg-zinc-900 transition-colors cursor-pointer justify-center">
-                <Type className="w-4 h-4" />
-                {loadedFont ? "Fonte Carregada" : "Carregar Fonte (.ttf/.otf)"}
-                <input type="file" className="hidden" accept=".ttf,.otf" onChange={handleFontUpload} />
-              </label>
-
-              {/* TEXT ADDITION */}
-              <div className="space-y-2 bg-[#0c0c0e] border border-zinc-900 p-4 rounded-lg">
-                <input 
-                  type="text" 
-                  placeholder="Digitar texto..." 
-                  className="w-full bg-black border border-zinc-800 p-2 rounded text-white text-xs"
-                  id="textInput"
-                />
-                <button 
-                  onClick={() => {
-                    const textInput = document.getElementById('textInput') as HTMLInputElement;
-                    if (textInput && textInput.value && loadedFont) {
-                        const path = loadedFont.getPath(textInput.value, 0, 0, 40);
-                        const pathData = path.toPathData();
-                        
-                        const svgString = `<svg><path d="${pathData}"/></svg>`;
-                        const loader = new SVGLoader();
-                        const svgData = loader.parse(svgString);
-                        
-                        const newLayers: SVGPathLayer[] = [];
-                        svgData.paths.forEach((pathObj, pathIdx) => {
-                            pathObj.subPaths.forEach((subPath, subIdx) => {
-                                const pts = subPath.getPoints(45);
-                                if (pts.length < 2) return;
-                                
-                                const startPt = pts[0];
-                                const endPt = pts[pts.length - 1];
-                                const isClosed = startPt.distanceTo(endPt) < 0.1;
-                                let pathLen = 0;
-                                for (let i = 0; i < pts.length - 1; i++) {
-                                    pathLen += pts[i].distanceTo(pts[i + 1]);
-                                }
-
-                                newLayers.push({
-                                    id: `text-${Date.now()}-${pathIdx}-${subIdx}`,
-                                    name: `TEXTO (${textInput.value})`,
-                                    type: "stamp",
-                                    points: pts,
-                                    isClosed,
-                                    length: pathLen
-                                });
-                            });
-                        });
-                        
-                        setLayers(prev => [...prev, ...newLayers]);
-                        triggerSuccess("Texto adicionado!");
-                    } else if (!loadedFont) {
-                        setErrorMsg("Carregue uma fonte primeiro!");
-                    }
-                  }}
-                  className="w-full bg-[#00E5FF] text-black font-bold text-xs py-2 rounded hover:bg-[#00c5dd] transition-colors"
-                >
-                  Adicionar Texto
-                </button>
               </div>
 
               {/* QUICK ACCESSIBLE PRESETS */}
