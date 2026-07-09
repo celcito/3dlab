@@ -91,6 +91,8 @@ Return only the optimized prompt.`;
         enhancedPrompt = `3D print-in-place articulated sensory fidget keychain toy of: ${prompt}. Combining flexible wiggling joint segments with a sturdy connector loop ring integrated on top of its head, pocket-sized, flat bottom, resting on a plain dark studio tabletop, realistic plastic material, high quality render.`;
       } else if (physicalFormat === "keychain") {
         enhancedPrompt = `3D mini figure keychain edition of: ${prompt}. Pocket-sized, featuring a sturdy attachment loop connector ring integrated on top of its head, plain neutral dark studio background, displayed as a small keychain accessory, realistic plastic material, high quality render.`;
+      } else if (physicalFormat === "drawing_plate") {
+        enhancedPrompt = `2D lineart drawing plate design: ${prompt}. Pure black and white, high contrast, clean vector style lines, coloring book page, no shading, minimal details.`;
       } else {
         enhancedPrompt = `3D digital sculpture of: ${prompt}. Centered composition, plain neutral dark studio background, displayed on a pedestal or base, realistic materials, intricate fine details, optimized for 3D printing, high quality render.`;
       }

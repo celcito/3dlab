@@ -2,7 +2,7 @@ import { useState, useRef, useEffect, useMemo } from "react";
 import { Canvas, useThree, useFrame } from "@react-three/fiber";
 import { OrbitControls, Grid, Text } from "@react-three/drei";
 import * as THREE from "three";
-import { Upload, Download, Paintbrush, PaintBucket, Move, RotateCcw, Eye, EyeOff, Trash2, Sliders, Play, Plus, Info, Check, RefreshCw, Sparkles, Layers, Undo, Eraser, Ruler, Clock, Printer, Settings, FileJson, Save } from "lucide-react";
+import { Upload, Download, Paintbrush, PaintBucket, Move, RotateCcw, Eye, EyeOff, Trash2, Sliders, Play, Plus, Info, Check, RefreshCw, Sparkles, Layers, Undo, Eraser, Ruler, Clock, Printer, Settings, FileJson, Save, BoxSelect, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Slider } from "@/components/ui/slider";
 import { STLLoader } from "three/examples/jsm/loaders/STLLoader.js";
@@ -376,8 +376,8 @@ function PaintableMesh({
     >
       <meshStandardMaterial
         vertexColors
-        roughness={0.6}
-        metalness={0.1}
+        roughness={0.4}
+        metalness={0.2}
         side={THREE.DoubleSide}
       />
     </mesh>
@@ -538,8 +538,16 @@ export default function Viewer3D() {
   const [brushRadius, setBrushRadius] = useState(0.2);
   const [stats, setStats] = useState({ faces: 0, vertices: 0 });
   const [isExporting, setIsExporting] = useState<number | null>(null);
+  const [loadingCap, setLoadingCap] = useState(false);
+  const [capSelection, setCapSelection] = useState<"base" | "top">("top");
+  const [isCapped, setIsCapped] = useState(false);
+  const [isDownloadingCapped, setIsDownloadingCapped] = useState(false);
   const [isolateGroupId, setIsolateGroupId] = useState<number | null>(null);
   const [autoIsolateActive, setAutoIsolateActive] = useState(false);
+
+  // General processing states for long-running geometry operations
+  const [isProcessing, setIsProcessing] = useState(false);
+  const [processingMessage, setProcessingMessage] = useState("");
 
   // Separation Preview States
   const [previewSeparated, setPreviewSeparated] = useState(false);
@@ -550,9 +558,28 @@ export default function Viewer3D() {
   const [segmentArms, setSegmentArms] = useState(true);
   const [segmentTorso, setSegmentTorso] = useState(true);
   const [jointType, setJointType] = useState<"default" | "magnet">("default");
+  const [showSuppliers, setShowSuppliers] = useState(false);
+
+  // Conversion & Import Settings
+  const [importUnit, setImportUnit] = useState<"mm" | "inch">("mm");
+  const [importScale, setImportScale] = useState(1.0);
+  const [showConversionSettings, setShowConversionSettings] = useState(false);
 
   // SLA & FDM Estimator States
   const [estimatorType, setEstimatorType] = useState<"SLA" | "FDM">("SLA");
+  
+  // Material Profiles
+  const MATERIALS = [
+    { id: "pla", name: "PLA (Standard)", density: 1.24, defaultCost: 110, type: "FDM" },
+    { id: "petg", name: "PETG (Resistente)", density: 1.27, defaultCost: 130, type: "FDM" },
+    { id: "abs", name: "ABS (Técnico)", density: 1.04, defaultCost: 100, type: "FDM" },
+    { id: "resin_std", name: "Resina Standard", density: 1.10, defaultCost: 220, type: "SLA" },
+    { id: "resin_tough", name: "Resina Tough/ABS-Like", density: 1.15, defaultCost: 340, type: "SLA" },
+    { id: "resin_eco", name: "Resina Eco / Lavável", density: 1.05, defaultCost: 280, type: "SLA" },
+  ];
+
+  const [selectedMaterialId, setSelectedMaterialId] = useState("resin_std");
+  const [materialDensity, setMaterialDensity] = useState(1.10);
   const [modelDimensions, setModelDimensions] = useState({ x: 0, y: 0, z: 0, volume: 0 });
   const [printScale, setPrintScale] = useState(100);
   
@@ -564,14 +591,99 @@ export default function Viewer3D() {
   const [isHollow, setIsHollow] = useState(false);
   const [layerHeight, setLayerHeight] = useState(0.05); // in mm
   const [exposureTime, setExposureTime] = useState(2.5); // in seconds
-  const [resinCostPerKg, setResinCostPerKg] = useState(35); // USD or BRL per kg
+  const [resinCostPerKg, setResinCostPerKg] = useState(220); // Average BRL per kg
 
   // FDM specific
   const [fdmInfill, setFdmInfill] = useState(20); // in %
   const [fdmLayerHeight, setFdmLayerHeight] = useState(0.2); // in mm
   const [fdmPrintSpeed, setFdmPrintSpeed] = useState(60); // in mm/s
-  const [fdmFilamentCostPerKg, setFdmFilamentCostPerKg] = useState(25); // USD or BRL per kg
+  const [fdmFilamentCostPerKg, setFdmFilamentCostPerKg] = useState(110); // Average BRL per kg
   const [fdmWallCount, setFdmWallCount] = useState(2); // number of walls/perimeters
+
+  const handleDownloadCSV = () => {
+    if (!modelDimensions) return;
+
+    const maxOriginalDim = Math.max(modelDimensions.x, modelDimensions.y, modelDimensions.z);
+    const autoScaleFactor = maxOriginalDim < 15.0 ? 10.0 : 1.0;
+    const scaleMultiplier = printScale / 100.0;
+    
+    const scaledX = modelDimensions.x * autoScaleFactor * scaleMultiplier;
+    const scaledY = modelDimensions.y * autoScaleFactor * scaleMultiplier;
+    const scaledZ = modelDimensions.z * autoScaleFactor * scaleMultiplier;
+
+    let rawVol = modelDimensions.volume * Math.pow(autoScaleFactor, 3) * Math.pow(scaleMultiplier, 3) * 0.001;
+    if (rawVol <= 0.001) {
+      rawVol = (scaledX * scaledY * scaledZ) * 0.001 * 0.40;
+    }
+
+    let finalVol = 0, weight = 0, cost = 0, timeStr = "";
+    const material = MATERIALS.find(m => m.id === selectedMaterialId)?.name || "Desconhecido";
+
+    if (estimatorType === "SLA") {
+      finalVol = isHollow ? rawVol * 0.30 : rawVol;
+      weight = finalVol * materialDensity;
+      cost = (weight / 1000.0) * resinCostPerKg;
+      
+      const totalLayers = Math.max(1, Math.ceil(scaledZ / layerHeight));
+      const totalSecs = totalLayers * (exposureTime + 5.0) + 120;
+      const hours = Math.floor(totalSecs / 3600);
+      const minutes = Math.floor((totalSecs % 3600) / 60);
+      timeStr = `${hours}h ${minutes}m`;
+    } else {
+      const shellFactor = Math.min(0.8, 0.08 * fdmWallCount);
+      const infillFactor = fdmInfill / 100.0;
+      const fdmVolRatio = shellFactor + (1.0 - shellFactor) * infillFactor;
+      finalVol = rawVol * Math.max(0.05, fdmVolRatio);
+      weight = finalVol * materialDensity;
+      cost = (weight / 1000.0) * fdmFilamentCostPerKg;
+
+      const volumetricFlow = 0.42 * fdmLayerHeight * fdmPrintSpeed;
+      const printSecs = (finalVol * 1000.0) / (volumetricFlow || 1.0);
+      const totalSecs = printSecs * 1.30 + 900;
+      const hours = Math.floor(totalSecs / 3600);
+      const minutes = Math.floor((totalSecs % 3600) / 60);
+      timeStr = `${hours}h ${minutes}m`;
+    }
+
+    const csvRows = [
+      ["Campo", "Valor"],
+      ["Arquivo", fileName],
+      ["Tipo de Estimador", estimatorType],
+      ["Material", material],
+      ["Escala de Impressao (%)", printScale],
+      ["Dimensoes X (mm)", scaledX.toFixed(2)],
+      ["Dimensoes Y (mm)", scaledY.toFixed(2)],
+      ["Dimensoes Z (mm)", scaledZ.toFixed(2)],
+      ["Volume Final (mL/cm3)", finalVol.toFixed(2)],
+      ["Peso Estimado (g)", weight.toFixed(2)],
+      ["Custo Estimado (R$)", cost.toFixed(2)],
+      ["Tempo Estimado", timeStr],
+      ["Densidade do Material (g/cm3)", materialDensity],
+      ["Custo por Kg (R$)", estimatorType === "SLA" ? resinCostPerKg : fdmFilamentCostPerKg],
+    ];
+
+    if (estimatorType === "SLA") {
+      csvRows.push(["Oco (Hollowed)", isHollow ? "Sim" : "Nao"]);
+      csvRows.push(["Altura de Camada (mm)", layerHeight]);
+      csvRows.push(["Tempo de Exposicao (s)", exposureTime]);
+    } else {
+      csvRows.push(["Infill (%)", fdmInfill]);
+      csvRows.push(["Altura de Camada FDM (mm)", fdmLayerHeight]);
+      csvRows.push(["Velocidade de Impressao (mm/s)", fdmPrintSpeed]);
+      csvRows.push(["Numero de Paredes", fdmWallCount]);
+    }
+
+    const csvContent = csvRows.map(row => row.join(",")).join("\n");
+    const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.setAttribute("href", url);
+    link.setAttribute("download", `estimativa_${fileName.replace(/\.[^/.]+$/, "")}.csv`);
+    link.style.visibility = "hidden";
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
 
   // Perceived performance simulation for print estimator calculations
   const [isEstimating, setIsEstimating] = useState(false);
@@ -611,6 +723,7 @@ export default function Viewer3D() {
     fdmPrintSpeed,
     fdmFilamentCostPerKg,
     fdmWallCount,
+    materialDensity,
     modelDimensions.volume // trigger when a new model is uploaded or changed
   ]);
 
@@ -1113,40 +1226,57 @@ export default function Viewer3D() {
   };
 
   const setupGeometry = (geometry: THREE.BufferGeometry) => {
-    let weldedGeom = geometry;
-    try {
-      weldedGeom = BufferGeometryUtils.mergeVertices(geometry);
-    } catch (e) {
-      console.warn("Failed to merge vertices:", e);
-    }
+    setIsProcessing(true);
+    setProcessingMessage("Preparando geometria e otimizando vértices...");
 
-    weldedGeom.center();
-    weldedGeom.computeVertexNormals();
-    
-    // Compute bounding box dimensions
-    weldedGeom.computeBoundingBox();
-    const bbox = weldedGeom.boundingBox;
-    let sizeX = 0, sizeY = 0, sizeZ = 0;
-    if (bbox) {
-      const size = new THREE.Vector3();
-      bbox.getSize(size);
-      sizeX = size.x;
-      sizeY = size.y;
-      sizeZ = size.z;
-    }
-    
-    // Calculate volume
-    const volume = calculateMeshVolume(weldedGeom);
-    setModelDimensions({ x: sizeX, y: sizeY, z: sizeZ, volume });
+    setTimeout(() => {
+      try {
+        let weldedGeom = geometry;
+        try {
+          weldedGeom = BufferGeometryUtils.mergeVertices(geometry);
+        } catch (e) {
+          console.warn("Failed to merge vertices:", e);
+        }
 
-    const count = weldedGeom.attributes.position.count;
-    setVertexGroups(new Uint8Array(count));
-    setHistory([]);
-    setModelGeometry(weldedGeom);
-    setStats({
-      faces: weldedGeom.index ? Math.floor(weldedGeom.index.count / 3) : Math.floor(count / 3),
-      vertices: count,
-    });
+        // Apply scale and unit conversion
+        const unitFactor = importUnit === "inch" ? 25.4 : 1.0;
+        const totalFactor = unitFactor * importScale;
+        
+        if (totalFactor !== 1.0) {
+          weldedGeom.scale(totalFactor, totalFactor, totalFactor);
+        }
+
+        weldedGeom.center();
+        weldedGeom.computeVertexNormals();
+        
+        // Compute bounding box dimensions
+        weldedGeom.computeBoundingBox();
+        const bbox = weldedGeom.boundingBox;
+        let sizeX = 0, sizeY = 0, sizeZ = 0;
+        if (bbox) {
+          const size = new THREE.Vector3();
+          bbox.getSize(size);
+          sizeX = size.x;
+          sizeY = size.y;
+          sizeZ = size.z;
+        }
+        
+        // Calculate volume
+        const volume = calculateMeshVolume(weldedGeom);
+        setModelDimensions({ x: sizeX, y: sizeY, z: sizeZ, volume });
+
+        const count = weldedGeom.attributes.position.count;
+        setVertexGroups(new Uint8Array(count));
+        setHistory([]);
+        setModelGeometry(weldedGeom);
+        setStats({
+          faces: weldedGeom.index ? Math.floor(weldedGeom.index.count / 3) : Math.floor(count / 3),
+          vertices: count,
+        });
+      } finally {
+        setIsProcessing(false);
+      }
+    }, 100);
   };
 
   // Generate high-quality Torus Knot geometry for the demo model
@@ -1162,6 +1292,9 @@ export default function Viewer3D() {
     const file = event.target.files?.[0];
     if (!file) return;
 
+    setIsProcessing(true);
+    setProcessingMessage(`Lendo arquivo: ${file.name}...`);
+
     const name = file.name.toUpperCase();
     setFileName(name);
 
@@ -1176,6 +1309,7 @@ export default function Viewer3D() {
         } catch (err) {
           console.error("Error loading STL:", err);
           alert("Failed to parse STL file. Please verify the format.");
+          setIsProcessing(false);
         }
       };
       reader.readAsArrayBuffer(file);
@@ -1199,6 +1333,7 @@ export default function Viewer3D() {
 
           if (geometries.length === 0) {
             alert("No 3D meshes found in this OBJ file.");
+            setIsProcessing(false);
             return;
           }
 
@@ -1213,6 +1348,7 @@ export default function Viewer3D() {
         } catch (err) {
           console.error("Error loading OBJ:", err);
           alert("Failed to parse OBJ file.");
+          setIsProcessing(false);
         }
       };
       reader.readAsText(file);
@@ -1236,6 +1372,7 @@ export default function Viewer3D() {
 
           if (geometries.length === 0) {
             alert("No 3D meshes found in this FBX file.");
+            setIsProcessing(false);
             return;
           }
 
@@ -1250,16 +1387,361 @@ export default function Viewer3D() {
         } catch (err) {
           console.error("Error loading FBX:", err);
           alert("Failed to parse FBX file.");
+          setIsProcessing(false);
         }
       };
       reader.readAsArrayBuffer(file);
     } else {
       alert("Unsupported format. Please upload .STL, .OBJ, or .FBX files.");
+      setIsProcessing(false);
     }
   };
 
   const handleGeometryUpdated = () => {
     // Simply trigger state updates if necessary
+  };
+
+  const capHollowVase = async () => {
+    if (!modelGeometry) return;
+    setLoadingCap(true);
+    setIsProcessing(true);
+    setProcessingMessage("Fechando furos e gerando tampa (Watertight)...");
+    
+    // Allow UI to update before heavy computation
+    await new Promise(resolve => setTimeout(resolve, 50));
+    
+    try {
+      let geom = modelGeometry.clone();
+      geom = BufferGeometryUtils.mergeVertices(geom);
+      
+      const index = geom.getIndex();
+      if (!index) {
+        alert("Não foi possível processar a geometria (sem índices).");
+        setLoadingCap(false);
+        return;
+      }
+
+      const posAttr = geom.getAttribute('position');
+      
+      const MULT = 100000000;
+      const boundaryEdges = new Set<number>();
+      
+      const idxCount = index.count;
+      for (let i = 0; i < idxCount; i += 3) {
+        const a = index.getX(i);
+        const b = index.getX(i + 1);
+        const c = index.getX(i + 2);
+        
+        const e1_ab = a * MULT + b;
+        const e1_ba = b * MULT + a;
+        if (boundaryEdges.has(e1_ba)) boundaryEdges.delete(e1_ba);
+        else if (boundaryEdges.has(e1_ab)) boundaryEdges.delete(e1_ab);
+        else boundaryEdges.add(e1_ab);
+        
+        const e2_bc = b * MULT + c;
+        const e2_cb = c * MULT + b;
+        if (boundaryEdges.has(e2_cb)) boundaryEdges.delete(e2_cb);
+        else if (boundaryEdges.has(e2_bc)) boundaryEdges.delete(e2_bc);
+        else boundaryEdges.add(e2_bc);
+        
+        const e3_ca = c * MULT + a;
+        const e3_ac = a * MULT + c;
+        if (boundaryEdges.has(e3_ac)) boundaryEdges.delete(e3_ac);
+        else if (boundaryEdges.has(e3_ca)) boundaryEdges.delete(e3_ca);
+        else boundaryEdges.add(e3_ca);
+      }
+      
+      const nextVertex = new Map();
+      for (const edge of boundaryEdges) {
+        const u = Math.floor(edge / MULT);
+        const v = edge % MULT;
+        nextVertex.set(u, v);
+      }
+      
+      if (nextVertex.size === 0) {
+        alert("Nenhum buraco encontrado (a malha já está fechada).");
+        setLoadingCap(false);
+        setIsProcessing(false);
+        return;
+      }
+      
+      const loops = [];
+      const visited = new Set();
+      for (const [startNode, _] of nextVertex.entries()) {
+        if (visited.has(startNode)) continue;
+        
+        const loop = [];
+        let current = startNode;
+        while (current !== undefined && !visited.has(current)) {
+          visited.add(current);
+          loop.push(current);
+          current = nextVertex.get(current);
+        }
+        if (loop.length > 2) {
+          loops.push(loop);
+        }
+      }
+      
+      geom.computeBoundingBox();
+      const bbox = geom.boundingBox;
+      if (!bbox) {
+         setLoadingCap(false);
+         return;
+      }
+      
+      const extX = bbox.max.x - bbox.min.x;
+      const extY = bbox.max.y - bbox.min.y;
+      const extZ = bbox.max.z - bbox.min.z;
+      
+      let getAxisVal = (v) => posAttr.getY(v);
+      let minVal = bbox.min.y;
+      let ext = extY;
+      
+      if (extZ > extY && extZ > extX) {
+         getAxisVal = (v) => posAttr.getZ(v);
+         minVal = bbox.min.z;
+         ext = extZ;
+      } else if (extX > extY && extX > extZ) {
+         getAxisVal = (v) => posAttr.getX(v);
+         minVal = bbox.min.x;
+         ext = extX;
+      }
+      
+      let targetLoops = [];
+      if (capSelection === "top") {
+        targetLoops = loops.filter(loop => {
+          let avg = 0;
+          loop.forEach(v => avg += getAxisVal(v));
+          return (avg / loop.length) > minVal + ext * 0.5;
+        });
+      } else {
+        targetLoops = loops.filter(loop => {
+          let avg = 0;
+          loop.forEach(v => avg += getAxisVal(v));
+          return (avg / loop.length) < minVal + ext * 0.5;
+        });
+      }
+      
+      if (targetLoops.length === 0) {
+        if (loops.length === 0) {
+           alert("Nenhum buraco aberto encontrado. Se o vaso tem paredes grossas, a malha já está fechada!");
+        } else {
+           alert(`Nenhum buraco encontrado na parte "${capSelection}". (Buracos totais: ${loops.length}). Tente a outra opção.`);
+        }
+        setLoadingCap(false);
+        setIsProcessing(false);
+        return;
+      }
+      
+      let newTrianglesCount = 0;
+      targetLoops.forEach(loop => {
+        newTrianglesCount += loop.length;
+      });
+      
+      const newVertexCount = posAttr.count + targetLoops.length;
+      const newPositions = new Float32Array(newVertexCount * 3);
+      newPositions.set(posAttr.array);
+      
+      const oldColorsAttr = geom.getAttribute('color');
+      const newColors = new Float32Array(newVertexCount * 3);
+      if (oldColorsAttr) {
+        newColors.set(oldColorsAttr.array);
+      } else {
+        newColors.fill(1);
+      }
+      
+      const newIndices = new Uint32Array(index.count + newTrianglesCount * 3);
+      newIndices.set(index.array);
+      
+      let currentVertexCount = posAttr.count;
+      let currentIndexCount = index.count;
+      
+      targetLoops.forEach(loop => {
+        let cx = 0, cy = 0, cz = 0;
+        let cR = 0, cG = 0, cB = 0;
+        
+        loop.forEach(v => {
+          cx += posAttr.getX(v);
+          cy += posAttr.getY(v);
+          cz += posAttr.getZ(v);
+          if (oldColorsAttr) {
+             cR += oldColorsAttr.getX(v);
+             cG += oldColorsAttr.getY(v);
+             cB += oldColorsAttr.getZ(v);
+          }
+        });
+        cx /= loop.length;
+        cy /= loop.length;
+        cz /= loop.length;
+        
+        if (oldColorsAttr) {
+           cR /= loop.length;
+           cG /= loop.length;
+           cB /= loop.length;
+        } else {
+           cR = 1; cG = 1; cB = 1;
+        }
+        
+        const centerIndex = currentVertexCount;
+        newPositions[centerIndex * 3] = cx;
+        newPositions[centerIndex * 3 + 1] = cy;
+        newPositions[centerIndex * 3 + 2] = cz;
+        
+        newColors[centerIndex * 3] = cR;
+        newColors[centerIndex * 3 + 1] = cG;
+        newColors[centerIndex * 3 + 2] = cB;
+        
+        currentVertexCount++;
+        
+        for (let i = 0; i < loop.length; i++) {
+          const v1 = loop[i];
+          const v2 = loop[(i + 1) % loop.length];
+          // Reversed winding order to point normals outwards
+          newIndices[currentIndexCount++] = v2;
+          newIndices[currentIndexCount++] = v1;
+          newIndices[currentIndexCount++] = centerIndex;
+        }
+      });
+      
+      const cappedGeom = new THREE.BufferGeometry();
+      cappedGeom.setAttribute('position', new THREE.BufferAttribute(newPositions, 3));
+      cappedGeom.setIndex(new THREE.BufferAttribute(newIndices, 1));
+      cappedGeom.computeVertexNormals();
+      
+      cappedGeom.setAttribute("color", new THREE.BufferAttribute(newColors, 3));
+      
+      setModelGeometry(cappedGeom);
+      
+      const newGroups = new Uint8Array(currentVertexCount);
+      setVertexGroups(newGroups);
+      setHistory([]);
+      
+      setStats({
+        faces: newIndices.length / 3,
+        vertices: currentVertexCount
+      });
+      
+      setIsCapped(true);
+      alert(`Parte "${capSelection}" fechada com sucesso! O modelo na tela foi atualizado.`);
+    } catch (err) {
+      console.error(err);
+      alert("Ocorreu um erro ao tentar fechar o vaso.");
+    } finally {
+      setLoadingCap(false);
+      setIsProcessing(false);
+    }
+  };
+
+  const downloadCappedModel = () => {
+    if (!modelGeometry) return;
+    setIsDownloadingCapped(true);
+    setIsProcessing(true);
+    setProcessingMessage("Preparando download do modelo otimizado...");
+
+    setTimeout(() => {
+        const workerScript = `
+        self.onmessage = function(e) {
+            const positions = e.data.positions;
+            const indices = e.data.indices;
+            
+            const numTriangles = indices ? indices.length / 3 : positions.length / 9;
+            const bufferLength = 84 + (50 * numTriangles);
+            const arrayBuffer = new ArrayBuffer(bufferLength);
+            const dataView = new DataView(arrayBuffer);
+            
+            dataView.setUint32(80, numTriangles, true);
+            
+            let offset = 84;
+            let i = 0;
+            
+            while (i < (indices ? indices.length : (positions.length / 3))) {
+                let a, b, c;
+                if (indices) {
+                    a = indices[i] * 3;
+                    b = indices[i+1] * 3;
+                    c = indices[i+2] * 3;
+                    i += 3;
+                } else {
+                    a = i * 3;
+                    b = (i+1) * 3;
+                    c = (i+2) * 3;
+                    i += 3;
+                }
+                
+                const pAx = positions[a], pAy = positions[a+1], pAz = positions[a+2];
+                const pBx = positions[b], pBy = positions[b+1], pBz = positions[b+2];
+                const pCx = positions[c], pCy = positions[c+1], pCz = positions[c+2];
+                
+                const cbX = pCx - pBx, cbY = pCy - pBy, cbZ = pCz - pBz;
+                const abX = pAx - pBx, abY = pAy - pBy, abZ = pAz - pBz;
+                
+                let nx = cbY * abZ - cbZ * abY;
+                let ny = cbZ * abX - cbX * abZ;
+                let nz = cbX * abY - cbY * abX;
+                
+                let len = Math.sqrt(nx*nx + ny*ny + nz*nz);
+                if (len > 0) { nx /= len; ny /= len; nz /= len; }
+                
+                dataView.setFloat32(offset, nx, true); offset += 4;
+                dataView.setFloat32(offset, ny, true); offset += 4;
+                dataView.setFloat32(offset, nz, true); offset += 4;
+                
+                dataView.setFloat32(offset, pAx, true); offset += 4;
+                dataView.setFloat32(offset, pAy, true); offset += 4;
+                dataView.setFloat32(offset, pAz, true); offset += 4;
+                
+                dataView.setFloat32(offset, pBx, true); offset += 4;
+                dataView.setFloat32(offset, pBy, true); offset += 4;
+                dataView.setFloat32(offset, pBz, true); offset += 4;
+                
+                dataView.setFloat32(offset, pCx, true); offset += 4;
+                dataView.setFloat32(offset, pCy, true); offset += 4;
+                dataView.setFloat32(offset, pCz, true); offset += 4;
+                
+                dataView.setUint16(offset, 0, true); offset += 2;
+            }
+            
+            self.postMessage({ buffer: arrayBuffer }, [arrayBuffer]);
+        };
+        `;
+        
+        try {
+            const blobScript = new Blob([workerScript], { type: 'application/javascript' });
+            const worker = new Worker(URL.createObjectURL(blobScript));
+            
+            const positions = modelGeometry.getAttribute('position').array;
+            const indices = modelGeometry.getIndex() ? modelGeometry.getIndex().array : null;
+            
+            worker.postMessage({ positions, indices });
+            
+            worker.onmessage = (e) => {
+                const outBlob = new Blob([e.data.buffer], { type: "application/octet-stream" });
+                const link = document.createElement("a");
+                link.href = URL.createObjectURL(outBlob);
+                link.download = `vaso_fechado_${capSelection}.stl`;
+                link.click();
+                
+                setTimeout(() => URL.revokeObjectURL(link.href), 1000);
+                setIsCapped(false);
+                setIsDownloadingCapped(false);
+                setIsProcessing(false);
+                worker.terminate();
+            };
+            
+            worker.onerror = (e) => {
+                console.error(e);
+                alert("Erro ao exportar STL");
+                setIsDownloadingCapped(false);
+                setIsProcessing(false);
+                worker.terminate();
+            };
+        } catch (e) {
+            console.error(e);
+            alert("Erro ao inicializar exportação");
+            setIsDownloadingCapped(false);
+            setIsProcessing(false);
+        }
+    }, 100);
   };
 
   // Keyboard listener for Ctrl+Z / Cmd+Z Undo
@@ -1406,62 +1888,66 @@ export default function Viewer3D() {
 
   const autoSegmentAnatomy = () => {
     if (!modelGeometry) return;
-    pushStateToHistory();
-    const count = modelGeometry.attributes.position.count;
-    const positionAttr = modelGeometry.attributes.position;
-    const colorAttr = modelGeometry.attributes.color;
-    const newGroups = new Uint8Array(count);
+    setIsProcessing(true);
+    setProcessingMessage("Executando Segmentação Anatômica...");
 
-    let minX = Infinity, maxX = -Infinity;
-    let minY = Infinity, maxY = -Infinity;
-    let minZ = Infinity, maxZ = -Infinity;
+    setTimeout(() => {
+      try {
+        pushStateToHistory();
+        const count = modelGeometry.attributes.position.count;
+        const positionAttr = modelGeometry.attributes.position;
+        const colorAttr = modelGeometry.attributes.color;
+        const newGroups = new Uint8Array(count);
 
-    for (let i = 0; i < count; i++) {
-      const x = positionAttr.getX(i);
-      const y = positionAttr.getY(i);
-      const z = positionAttr.getZ(i);
-      if (x < minX) minX = x;
-      if (x > maxX) maxX = x;
-      if (y < minY) minY = y;
-      if (y > maxY) maxY = y;
-      if (z < minZ) minZ = z;
-      if (z > maxZ) maxZ = z;
-    }
+        let minX = Infinity, maxX = -Infinity;
+        let minY = Infinity, maxY = -Infinity;
+        let minZ = Infinity, maxZ = -Infinity;
 
-    const height = maxY - minY;
-    const width = maxX - minX;
+        for (let i = 0; i < count; i++) {
+          const x = positionAttr.getX(i);
+          const y = positionAttr.getY(i);
+          const z = positionAttr.getZ(i);
+          if (x < minX) minX = x;
+          if (x > maxX) maxX = x;
+          if (y < minY) minY = y;
+          if (y > maxY) maxY = y;
+          if (z < minZ) minZ = z;
+          if (z > maxZ) maxZ = z;
+        }
 
-    for (let i = 0; i < count; i++) {
-      const x = positionAttr.getX(i);
-      const y = positionAttr.getY(i);
+        const height = maxY - minY;
+        const width = maxX - minX;
 
-      if (y < minY + height * 0.36) {
-        // Pernas (Group 1 - Blue)
-        newGroups[i] = segmentLegs ? 1 : 0;
-      } else if (x < minX + width * 0.33) {
-        // Braço Esquerdo / Lateral Esquerda (Group 3 - Green)
-        newGroups[i] = segmentArms ? 3 : 0;
-      } else if (x > maxX - width * 0.33) {
-        // Braço Direito / Lateral Direita (Group 4 - Purple)
-        newGroups[i] = segmentArms ? 4 : 0;
-      } else {
-        // Tronco / Cabeça (Group 2 - Orange)
-        newGroups[i] = segmentTorso ? 2 : 0;
+        for (let i = 0; i < count; i++) {
+          const x = positionAttr.getX(i);
+          const y = positionAttr.getY(i);
+
+          if (y < minY + height * 0.36) {
+            newGroups[i] = segmentLegs ? 1 : 0;
+          } else if (x < minX + width * 0.33) {
+            newGroups[i] = segmentArms ? 3 : 0;
+          } else if (x > maxX - width * 0.33) {
+            newGroups[i] = segmentArms ? 4 : 0;
+          } else {
+            newGroups[i] = segmentTorso ? 2 : 0;
+          }
+        }
+
+        if (colorAttr) {
+          for (let i = 0; i < count; i++) {
+            const gId = newGroups[i];
+            const color = new THREE.Color(getGroupColor(gId));
+            colorAttr.setXYZ(i, color.r, color.g, color.b);
+          }
+          colorAttr.needsUpdate = true;
+        }
+
+        setVertexGroups(newGroups);
+        handleGeometryUpdated();
+      } finally {
+        setIsProcessing(false);
       }
-    }
-
-    // Apply colors to the geometry
-    if (colorAttr) {
-      for (let i = 0; i < count; i++) {
-        const gId = newGroups[i];
-        const color = new THREE.Color(getGroupColor(gId));
-        colorAttr.setXYZ(i, color.r, color.g, color.b);
-      }
-      colorAttr.needsUpdate = true;
-    }
-
-    setVertexGroups(newGroups);
-    handleGeometryUpdated();
+    }, 100);
   };
 
   const autoSegmentShells = () => {
@@ -1471,69 +1957,216 @@ export default function Viewer3D() {
       return;
     }
 
-    pushStateToHistory();
-    const count = modelGeometry.attributes.position.count;
-    const newGroups = new Uint8Array(count);
-    const visited = new Uint8Array(count);
+    setIsProcessing(true);
+    setProcessingMessage("Detectando peças soltas (shells)...");
 
-    let currentGroup = 1;
-    const maxGroups = 4;
+    const faceCount = stats.faces;
+    if (faceCount > 200000) {
+      if (!confirm(`Este modelo é muito complexo (${faceCount.toLocaleString()} faces). A detecção de peças soltas pode ser lenta e, em modelos unificados, pode resultar em uma única peça. Deseja continuar?`)) {
+        setIsProcessing(false);
+        return;
+      }
+    }
 
-    for (let i = 0; i < count; i++) {
-      if (visited[i] === 0) {
-        // BFS to find all vertices in this disconnected shell
-        const queue: number[] = [i];
-        visited[i] = 1;
+    setTimeout(() => {
+      try {
+        pushStateToHistory();
+        const count = modelGeometry.attributes.position.count;
+        const newGroups = new Uint8Array(count);
+        const visited = new Uint8Array(count);
 
-        const component: number[] = [];
-        while (queue.length > 0) {
-          const u = queue.shift()!;
-          component.push(u);
+        let currentGroup = 1;
+        const maxGroups = 4;
+        let shellCount = 0;
 
-          if (component.length > 150000) {
-            // Safety throttle for single massive shells to prevent crash
-            break;
-          }
+        for (let i = 0; i < count; i++) {
+          if (visited[i] === 0) {
+            shellCount++;
+            const queue: number[] = [i];
+            visited[i] = 1;
 
-          const neighbors = adjacencyList[u];
-          if (neighbors) {
-            for (const v of neighbors) {
-              if (visited[v] === 0) {
-                visited[v] = 1;
-                queue.push(v);
+            const component: number[] = [];
+            while (queue.length > 0) {
+              const u = queue.shift()!;
+              component.push(u);
+
+              // Increased safety limit for very large parts
+              if (component.length > 500000) break;
+
+              const neighbors = adjacencyList[u];
+              if (neighbors) {
+                for (const v of neighbors) {
+                  if (visited[v] === 0) {
+                    visited[v] = 1;
+                    queue.push(v);
+                  }
+                }
               }
             }
+
+            for (const idx of component) {
+              newGroups[idx] = currentGroup;
+            }
+
+            currentGroup = currentGroup < maxGroups ? currentGroup + 1 : 1;
           }
         }
 
-        // Assign currentGroup to this shell
-        for (const idx of component) {
-          newGroups[idx] = currentGroup;
+        if (shellCount <= 1) {
+          alert("Apenas uma peça única foi detectada. Este modelo provavelmente é uma malha unificada. Tente usar a 'Divisão Inteligente' para separar por posição (rodas, teto, etc).");
         }
 
-        // Cycle through the available groups (1, 2, 3, 4)
-        currentGroup = currentGroup < maxGroups ? currentGroup + 1 : 1;
+        // Reset groups to default names for shell mode
+        setGroups([
+          { id: 0, name: "Base Principal (Cinza)", color: "#333333", border: "border-zinc-700" },
+          { id: 1, name: "Grupo 1", color: "#00E5FF", border: "border-[#00E5FF]" },
+          { id: 2, name: "Grupo 2", color: "#FF1744", border: "border-[#FF1744]" },
+          { id: 3, name: "Grupo 3", color: "#00FF41", border: "border-[#00FF41]" },
+          { id: 4, name: "Grupo 4", color: "#D500F9", border: "border-[#D500F9]" },
+        ]);
+
+        const colorAttr = modelGeometry.attributes.color;
+        if (colorAttr) {
+          for (let i = 0; i < count; i++) {
+            const gId = newGroups[i];
+            const color = new THREE.Color(getGroupColor(gId));
+            colorAttr.setXYZ(i, color.r, color.g, color.b);
+          }
+          colorAttr.needsUpdate = true;
+        }
+
+        setVertexGroups(newGroups);
+        handleGeometryUpdated();
+      } finally {
+        setIsProcessing(false);
       }
+    }, 100);
+  };
+
+  const autoSegmentSmart = () => {
+    if (!modelGeometry) return;
+    if (!adjacencyList) {
+      alert("Construindo conexões... Aguarde.");
+      return;
     }
 
-    // Apply colors to geometry
-    const colorAttr = modelGeometry.attributes.color;
-    if (colorAttr) {
-      for (let i = 0; i < count; i++) {
-        const gId = newGroups[i];
-        const color = new THREE.Color(getGroupColor(gId));
-        colorAttr.setXYZ(i, color.r, color.g, color.b);
-      }
-      colorAttr.needsUpdate = true;
-    }
+    setIsProcessing(true);
+    setProcessingMessage("Analisando topologia e identificando componentes principais...");
 
-    setVertexGroups(newGroups);
-    handleGeometryUpdated();
+    setTimeout(() => {
+      try {
+        pushStateToHistory();
+        const count = modelGeometry.attributes.position.count;
+        const positionAttr = modelGeometry.attributes.position;
+        const newGroups = new Uint8Array(count);
+        const visited = new Uint8Array(count);
+
+        const shells: { vertices: number[]; center: THREE.Vector3; count: number }[] = [];
+
+        for (let i = 0; i < count; i++) {
+          if (visited[i] === 0) {
+            const queue: number[] = [i];
+            visited[i] = 1;
+            const component: number[] = [];
+            const sum = new THREE.Vector3();
+
+            while (queue.length > 0) {
+              const u = queue.shift()!;
+              component.push(u);
+              sum.x += positionAttr.getX(u);
+              sum.y += positionAttr.getY(u);
+              sum.z += positionAttr.getZ(u);
+
+              if (component.length > 200000) break;
+
+              const neighbors = adjacencyList[u];
+              if (neighbors) {
+                for (const v of neighbors) {
+                  if (visited[v] === 0) {
+                    visited[v] = 1;
+                    queue.push(v);
+                  }
+                }
+              }
+            }
+            
+            shells.push({
+              vertices: component,
+              center: sum.divideScalar(component.length),
+              count: component.length
+            });
+          }
+        }
+
+        shells.sort((a, b) => b.count - a.count);
+
+        const modelBBox = modelGeometry.boundingBox;
+        if (!modelBBox) modelGeometry.computeBoundingBox();
+        const minY = modelGeometry.boundingBox!.min.y;
+        const maxY = modelGeometry.boundingBox!.max.y;
+        const height = maxY - minY;
+
+        shells.forEach((shell, index) => {
+          let gId = 4;
+          if (index === 0) {
+            gId = 1;
+          } else if (shell.count > count * 0.05) {
+            if (shell.center.y < minY + height * 0.3) {
+              gId = 2;
+            } else if (shell.center.y > maxY - height * 0.3) {
+              gId = 3;
+            } else {
+              gId = 1;
+            }
+          } else {
+            if (shell.center.y < minY + height * 0.2) {
+              gId = 2;
+            } else {
+              gId = 4;
+            }
+          }
+          for (const vIdx of shell.vertices) {
+            newGroups[vIdx] = gId;
+          }
+        });
+
+        setGroups([
+          { id: 0, name: "Base Principal (Cinza)", color: "#333333", border: "border-zinc-700" },
+          { id: 1, name: "Estrutura / Corpo Principal", color: "#00E5FF", border: "border-[#00E5FF]" },
+          { id: 2, name: "Base / Rodas / Inferior", color: "#FF1744", border: "border-[#FF1744]" },
+          { id: 3, name: "Topo / Teto / Superior", color: "#00FF41", border: "border-[#00FF41]" },
+          { id: 4, name: "Detalhes / Acessórios", color: "#D500F9", border: "border-[#D500F9]" },
+        ]);
+
+        const colorAttr = modelGeometry.attributes.color;
+        if (colorAttr) {
+          for (let i = 0; i < count; i++) {
+            const gId = newGroups[i];
+            const color = new THREE.Color(getGroupColor(gId, [
+              { id: 0, name: "Base Principal (Cinza)", color: "#333333", border: "border-zinc-700" },
+              { id: 1, name: "Estrutura / Corpo Principal", color: "#00E5FF", border: "border-[#00E5FF]" },
+              { id: 2, name: "Base / Rodas / Inferior", color: "#FF1744", border: "border-[#FF1744]" },
+              { id: 3, name: "Topo / Teto / Superior", color: "#00FF41", border: "border-[#00FF41]" },
+              { id: 4, name: "Detalhes / Acessórios", color: "#D500F9", border: "border-[#D500F9]" },
+            ]));
+            colorAttr.setXYZ(i, color.r, color.g, color.b);
+          }
+          colorAttr.needsUpdate = true;
+        }
+
+        setVertexGroups(newGroups);
+        handleGeometryUpdated();
+      } finally {
+        setIsProcessing(false);
+      }
+    }, 100);
   };
 
   const exportSeparatedPart = (groupId: number) => {
     if (!modelGeometry) return;
     setIsExporting(groupId);
+    setIsProcessing(true);
+    setProcessingMessage(`Exportando ${groupId === 0 ? "Peça Principal" : getGroupName(groupId)} para STL...`);
 
     setTimeout(() => {
       try {
@@ -1616,6 +2249,7 @@ export default function Viewer3D() {
         if (exportPositions.length === 0) {
           alert("No parts of the model have been painted with this group yet.");
           setIsExporting(null);
+          setIsProcessing(false);
           return;
         }
 
@@ -1648,6 +2282,7 @@ export default function Viewer3D() {
         console.error("Export error:", err);
       } finally {
         setIsExporting(null);
+        setIsProcessing(false);
       }
     }, 100);
   };
@@ -1704,10 +2339,12 @@ export default function Viewer3D() {
             {modelGeometry ? (
               <>
                 <Canvas shadows camera={{ position: [0, 0, 5], fov: 45 }}>
-                  <color attach="background" args={["#050505"]} />
-                  <ambientLight intensity={0.4} />
-                  <directionalLight position={[5, 10, 5]} intensity={1.2} castShadow />
-                  <directionalLight position={[-5, -10, -5]} intensity={0.4} />
+                  <color attach="background" args={["#0a0a0a"]} />
+                  <ambientLight intensity={0.8} />
+                  <pointLight position={[10, 10, 10]} intensity={1.5} />
+                  <pointLight position={[-10, 5, -10]} intensity={0.8} color="#00E5FF" />
+                  <directionalLight position={[5, 10, 5]} intensity={2.0} castShadow />
+                  <directionalLight position={[-5, -10, -5]} intensity={0.6} />
                   
                   {previewSeparated ? (
                     subGeometries.map((sub, idx) => (
@@ -1724,8 +2361,8 @@ export default function Viewer3D() {
                       >
                         <meshStandardMaterial
                           color={sub.color}
-                          roughness={0.6}
-                          metalness={0.1}
+                          roughness={0.4}
+                          metalness={0.2}
                           side={THREE.DoubleSide}
                         />
                       </mesh>
@@ -2042,8 +2679,106 @@ export default function Viewer3D() {
                 Upload STL, OBJ or FBX
               </button>
 
+              {/* CONVERSION SETTINGS PANEL */}
+              <div className="bg-[#111] border border-zinc-900 rounded overflow-hidden">
+                <button
+                  onClick={() => setShowConversionSettings(!showConversionSettings)}
+                  className="w-full flex items-center justify-between p-3 text-[10px] uppercase font-black tracking-widest text-zinc-400 hover:text-white transition-colors"
+                >
+                  <div className="flex items-center gap-2">
+                    <Settings className={`w-3.5 h-3.5 ${showConversionSettings ? 'text-[#00E5FF]' : 'text-zinc-600'}`} />
+                    Configurações de Conversão
+                  </div>
+                  <Plus className={`w-3 h-3 transition-transform duration-300 ${showConversionSettings ? 'rotate-45 text-[#00E5FF]' : ''}`} />
+                </button>
+
+                {showConversionSettings && (
+                  <div className="p-4 border-t border-zinc-900 space-y-4 animate-in slide-in-from-top-2 duration-300">
+                    <div className="space-y-2">
+                      <label className="text-[9px] uppercase font-bold text-zinc-500 block">Unidade de Medida (Importação)</label>
+                      <div className="grid grid-cols-2 gap-2">
+                        <button
+                          onClick={() => setImportUnit("mm")}
+                          className={`py-2 text-[10px] font-bold uppercase border rounded transition-all ${
+                            importUnit === "mm"
+                              ? "bg-[#00E5FF]/10 text-[#00E5FF] border-[#00E5FF]/30"
+                              : "bg-zinc-950 text-zinc-500 border-zinc-850 hover:text-white"
+                          }`}
+                        >
+                          Milímetros (mm)
+                        </button>
+                        <button
+                          onClick={() => setImportUnit("inch")}
+                          className={`py-2 text-[10px] font-bold uppercase border rounded transition-all ${
+                            importUnit === "inch"
+                              ? "bg-[#00E5FF]/10 text-[#00E5FF] border-[#00E5FF]/30"
+                              : "bg-zinc-950 text-zinc-500 border-zinc-850 hover:text-white"
+                          }`}
+                        >
+                          Polegadas (in)
+                        </button>
+                      </div>
+                    </div>
+
+                    <div className="space-y-2">
+                      <div className="flex justify-between text-[9px] uppercase font-bold text-zinc-500">
+                        <span>Escala de Importação</span>
+                        <span className="text-[#00E5FF] font-mono">{importScale.toFixed(2)}x</span>
+                      </div>
+                      <Slider
+                        value={[importScale]}
+                        onValueChange={(val) => setImportScale(val[0])}
+                        min={0.01}
+                        max={10.0}
+                        step={0.01}
+                      />
+                      <p className="text-[8px] text-zinc-600 italic">
+                        * A escala e unidade serão aplicadas no próximo upload ou recarregamento do modelo.
+                      </p>
+                    </div>
+                  </div>
+                )}
+              </div>
+
               {modelGeometry && (
-                <div className="grid grid-cols-2 gap-2 bg-[#151515] p-3 border border-zinc-800">
+                <div className="mt-2 bg-[#151515] p-3 border border-zinc-800">
+                  <div className="flex gap-2 mb-2">
+                    <button
+                      onClick={() => setCapSelection("base")}
+                      className={`flex-1 py-2 text-[10px] font-bold uppercase ${capSelection === 'base' ? 'bg-[#00FF41] text-black' : 'bg-zinc-800 text-white'}`}
+                    >
+                      Base
+                    </button>
+                    <button
+                      onClick={() => setCapSelection("top")}
+                      className={`flex-1 py-2 text-[10px] font-bold uppercase ${capSelection === 'top' ? 'bg-[#00FF41] text-black' : 'bg-zinc-800 text-white'}`}
+                    >
+                      Topo
+                    </button>
+                  </div>
+                  <button
+                    onClick={capHollowVase}
+                    disabled={loadingCap}
+                    className={`w-full bg-[#151515] border border-zinc-800 hover:border-[#00FF41] text-zinc-300 hover:text-white py-4 px-4 text-xs font-bold uppercase tracking-wider flex items-center justify-center gap-2 transition-all ${loadingCap ? 'opacity-50 cursor-not-allowed' : ''}`}
+                  >
+                    <BoxSelect className={`w-4 h-4 text-[#00FF41] ${loadingCap ? 'animate-spin' : ''}`} />
+                    {loadingCap ? "Processando..." : "Fechar Vaso Oco (Cap)"}
+                  </button>
+                  {isCapped && (
+                    <button
+                      onClick={downloadCappedModel}
+                      disabled={isDownloadingCapped}
+                      className={`w-full bg-[#00FF41] text-black border border-zinc-800 hover:bg-[#00CC33] py-4 px-4 text-xs font-bold uppercase tracking-wider flex items-center justify-center gap-2 transition-all mt-2 ${isDownloadingCapped ? 'opacity-50 cursor-not-allowed' : ''}`}
+                    >
+                      <Download className={`w-4 h-4 ${isDownloadingCapped ? 'animate-bounce' : ''}`} />
+                      {isDownloadingCapped ? "Gerando Arquivo..." : "Baixar Vaso Fechado (STL)"}
+                    </button>
+                  )}
+                </div>
+              )}
+
+              {modelGeometry && (
+                <div className="grid grid-cols-2 gap-2 bg-[#151515] p-3 border border-zinc-800 mt-2">
                   <div>
                     <span className="text-[9px] uppercase text-zinc-500 block">Triangles</span>
                     <span className="font-mono text-sm text-white">{stats.faces.toLocaleString()}</span>
@@ -2057,18 +2792,36 @@ export default function Viewer3D() {
             </div>
           </section>
 
-          {/* SLA & FDM RESIN / FILAMENT ESTIMATOR */}
+          {/* 02. SLA & FDM RESIN / FILAMENT ESTIMATOR */}
           {modelGeometry && (
             <section className="border-t border-zinc-900 pt-6">
-              <h3 className="text-[11px] uppercase tracking-widest text-zinc-400 mb-4 font-bold flex items-center gap-2">
-                <Printer className="w-4 h-4 text-[#00E5FF]" />
-                Estimativa de Impressão / Print Estimator
-              </h3>
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-[11px] uppercase tracking-widest text-zinc-400 font-bold flex items-center gap-2">
+                  <Printer className="w-4 h-4 text-[#00E5FF]" />
+                  02. Calculadora de Preços & Estimativas
+                </h3>
+                <button
+                  onClick={handleDownloadCSV}
+                  className="flex items-center gap-1.5 px-2 py-1 bg-zinc-900 border border-zinc-800 rounded text-[9px] uppercase font-bold text-zinc-400 hover:text-[#00E5FF] hover:border-[#00E5FF]/30 transition-all group"
+                  title="Exportar estimativa para CSV"
+                >
+                  <FileJson className="w-3 h-3 group-hover:scale-110 transition-transform" />
+                  CSV
+                </button>
+              </div>
 
               {/* ESTIMATOR TYPE TOGGLE */}
               <div className="flex bg-[#111] p-1 rounded border border-zinc-900 mb-4 font-sans">
                 <button
-                  onClick={() => setEstimatorType("SLA")}
+                  onClick={() => {
+                    setEstimatorType("SLA");
+                    const defResin = MATERIALS.find(m => m.type === "SLA");
+                    if (defResin) {
+                      setSelectedMaterialId(defResin.id);
+                      setMaterialDensity(defResin.density);
+                      setResinCostPerKg(defResin.defaultCost);
+                    }
+                  }}
                   className={`flex-1 py-1.5 text-[9px] font-bold uppercase tracking-wider rounded transition-all flex items-center justify-center gap-1.5 ${
                     estimatorType === "SLA"
                       ? "bg-cyan-500/10 text-[#00E5FF] border border-cyan-500/20"
@@ -2079,7 +2832,15 @@ export default function Viewer3D() {
                   SLA (Resina)
                 </button>
                 <button
-                  onClick={() => setEstimatorType("FDM")}
+                  onClick={() => {
+                    setEstimatorType("FDM");
+                    const defFilament = MATERIALS.find(m => m.type === "FDM");
+                    if (defFilament) {
+                      setSelectedMaterialId(defFilament.id);
+                      setMaterialDensity(defFilament.density);
+                      setFdmFilamentCostPerKg(defFilament.defaultCost);
+                    }
+                  }}
                   className={`flex-1 py-1.5 text-[9px] font-bold uppercase tracking-wider rounded transition-all flex items-center justify-center gap-1.5 ${
                     estimatorType === "FDM"
                       ? "bg-emerald-500/10 text-emerald-400 border border-emerald-500/20"
@@ -2089,6 +2850,37 @@ export default function Viewer3D() {
                   <Sliders className="w-3.5 h-3.5" />
                   FDM (Filamento)
                 </button>
+              </div>
+
+              {/* MATERIAL DROPDOWN */}
+              <div className="mb-4 space-y-1.5">
+                <label className="text-[9px] uppercase font-bold text-zinc-500 block px-1">Perfil de Material / Insumo</label>
+                <div className="relative group/mat">
+                  <select
+                    value={selectedMaterialId}
+                    onChange={(e) => {
+                      const mat = MATERIALS.find(m => m.id === e.target.value);
+                      if (mat) {
+                        setSelectedMaterialId(mat.id);
+                        setMaterialDensity(mat.density);
+                        if (mat.type === "SLA") setResinCostPerKg(mat.defaultCost);
+                        else setFdmFilamentCostPerKg(mat.defaultCost);
+                      }
+                    }}
+                    className="w-full bg-[#111] border border-zinc-800 p-2.5 rounded text-[10px] text-zinc-200 font-bold uppercase focus:outline-none focus:border-[#00E5FF] appearance-none cursor-pointer"
+                  >
+                    {MATERIALS.filter(m => m.type === estimatorType).map(mat => (
+                      <option key={mat.id} value={mat.id}>{mat.name}</option>
+                    ))}
+                  </select>
+                  <div className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none text-zinc-600">
+                    <Play className="w-2.5 h-2.5 rotate-90" />
+                  </div>
+                </div>
+                <div className="flex justify-between text-[8px] text-zinc-600 uppercase font-black px-1">
+                  <span>Densidade: {materialDensity.toFixed(2)} g/cm³</span>
+                  <span>Preço Sugerido: R$ {(estimatorType === "SLA" ? resinCostPerKg : fdmFilamentCostPerKg).toFixed(0)}/kg</span>
+                </div>
               </div>
 
               {/* ESTIMATES RESULTS BOX */}
@@ -2219,7 +3011,7 @@ export default function Viewer3D() {
                             rawVol = (px * py * pz) * 0.001 * 0.40;
                           }
                           const finalVol = isHollow ? rawVol * 0.30 : rawVol;
-                          const weight = finalVol * 1.1; // SLA Resin density ~1.1g/cm3
+                          const weight = finalVol * materialDensity;
                           return weight.toFixed(1);
                         })()} g
                       </span>
@@ -2261,7 +3053,7 @@ export default function Viewer3D() {
                             rawVol = (px * py * pz) * 0.001 * 0.40;
                           }
                           const finalVol = isHollow ? rawVol * 0.30 : rawVol;
-                          const weight = finalVol * 1.1;
+                          const weight = finalVol * materialDensity;
                           const cost = (weight / 1000.0) * resinCostPerKg;
                           return `$${cost.toFixed(2)}`;
                         })()}
@@ -2316,7 +3108,7 @@ export default function Viewer3D() {
                           const infillFactor = fdmInfill / 100.0;
                           const fdmVolRatio = shellFactor + (1.0 - shellFactor) * infillFactor;
                           const finalVol = rawVol * Math.max(0.05, fdmVolRatio);
-                          const weight = finalVol * 1.24; // PLA Density ~1.24g/cm3
+                          const weight = finalVol * materialDensity;
                           return weight.toFixed(1);
                         })()} g
                       </span>
@@ -2375,7 +3167,7 @@ export default function Viewer3D() {
                           const infillFactor = fdmInfill / 100.0;
                           const fdmVolRatio = shellFactor + (1.0 - shellFactor) * infillFactor;
                           const finalVol = rawVol * Math.max(0.05, fdmVolRatio);
-                          const weight = finalVol * 1.24;
+                          const weight = finalVol * materialDensity;
                           const cost = (weight / 1000.0) * fdmFilamentCostPerKg;
                           return `$${cost.toFixed(2)}`;
                         })()}
@@ -2841,11 +3633,88 @@ export default function Viewer3D() {
             </section>
           )}
 
+          {/* 03. FORNECEDORES & INSUMOS (ALWAYS VISIBLE) */}
+          <section className="border-t border-zinc-900 pt-6">
+            <h3 className="text-[11px] uppercase tracking-widest text-zinc-400 mb-4 font-bold flex items-center gap-2">
+              <Plus className="w-3.5 h-3.5 text-[#00E5FF]" />
+              03. Fornecedores / Suggested Suppliers
+            </h3>
+            <div className="space-y-2">
+              <button
+                onClick={() => setShowSuppliers(!showSuppliers)}
+                className="w-full flex items-center justify-between p-3 bg-zinc-950 border border-zinc-900 rounded text-[10px] font-black uppercase tracking-widest text-zinc-500 hover:text-[#00E5FF] hover:border-[#00E5FF]/30 transition-all group"
+              >
+                <div className="flex items-center gap-2">
+                  <Download className="w-3.5 h-3.5 group-hover:animate-bounce" />
+                  Ver Lista de Fornecedores
+                </div>
+                {showSuppliers ? <Undo className="w-3 h-3 rotate-90 text-[#00E5FF]" /> : <Plus className="w-3 h-3" />}
+              </button>
+
+              {showSuppliers && (
+                <div className="mt-2 space-y-2 animate-in fade-in slide-in-from-top-1 duration-300">
+                  <div className="grid grid-cols-2 gap-2 mb-2">
+                    <button
+                      onClick={() => setEstimatorType("SLA")}
+                      className={`py-1.5 text-[8px] font-bold uppercase rounded border transition-all ${
+                        estimatorType === "SLA" ? "bg-cyan-500/10 text-[#00E5FF] border-cyan-500/30" : "bg-zinc-900 text-zinc-600 border-zinc-800"
+                      }`}
+                    >
+                      Resina (SLA)
+                    </button>
+                    <button
+                      onClick={() => setEstimatorType("FDM")}
+                      className={`py-1.5 text-[8px] font-bold uppercase rounded border transition-all ${
+                        estimatorType === "FDM" ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/30" : "bg-zinc-900 text-zinc-600 border-zinc-800"
+                      }`}
+                    >
+                      Filamento (FDM)
+                    </button>
+                  </div>
+
+                  {(estimatorType === "SLA" ? [
+                    { name: "3D PRIME", url: "https://3dprime.com.br/resinas", desc: "Resinas premium e técnicas" },
+                    { name: "GTMAX 3D", url: "https://gtmax3d.com.br/", desc: "Especialista em insumos industriais" },
+                    { name: "ANYCUBIC BRASIL", url: "https://anycubic.com.br/", desc: "Revenda oficial e custo-benefício" },
+                    { name: "SLA7", url: "https://sla7.com.br/", desc: "Foco em odontologia e joalheria" }
+                  ] : [
+                    { name: "3D FILA", url: "https://3dfila.com.br/", desc: "Pioneira nacional em filamentos" },
+                    { name: "VOOLT3D", url: "https://www.voolt3d.com.br/", desc: "Grande variedade de cores e tipos" },
+                    { name: "CLIEVER", url: "https://www.cliever.com/", desc: "Filamentos profissionais de alta performance" },
+                    { name: "3D PRIME", url: "https://3dprime.com.br/filamentos", desc: "Opções de PLA, ABS e PETG" }
+                  ]).map((sup, idx) => (
+                    <a
+                      key={idx}
+                      href={sup.url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="flex items-center justify-between p-2.5 bg-[#0a0a0a] border border-zinc-900 rounded hover:border-[#00E5FF]/40 hover:bg-[#111] transition-all group/item"
+                    >
+                      <div className="space-y-0.5">
+                        <div className="text-[10px] font-black text-zinc-300 group-hover/item:text-white flex items-center gap-2">
+                          {sup.name}
+                          <Play className="w-2 h-2 text-zinc-700 group-hover/item:text-[#00E5FF]" />
+                        </div>
+                        <div className="text-[8px] text-zinc-600 uppercase tracking-tighter">
+                          {sup.desc}
+                        </div>
+                      </div>
+                      <Download className="w-3 h-3 text-zinc-800 group-hover/item:text-[#00E5FF] rotate-[-90deg]" />
+                    </a>
+                  ))}
+                  <p className="text-[7px] text-zinc-700 uppercase font-bold text-center pt-1 italic">
+                    * Os links levam para sites externos de fornecedores reconhecidos no mercado brasileiro.
+                  </p>
+                </div>
+              )}
+            </div>
+          </section>
+
           {/* COLOR SELECTION GROUPS */}
           <section>
             <div className="flex items-center justify-between mb-4">
               <h3 className="text-[11px] uppercase tracking-widest text-zinc-400 font-bold flex items-center">
-                <span>02. Active Paint Part / Parte Ativa</span>
+                <span>04. Active Paint Part / Parte Ativa</span>
                 <HelpTooltip text="Gerencie e selecione os componentes ou partes do seu boneco/peça para aplicar cores diferentes de forma isolada." />
               </h3>
               
@@ -3023,7 +3892,7 @@ export default function Viewer3D() {
             <section className="border-t border-zinc-900 pt-6">
               <h3 className="text-[11px] uppercase tracking-widest text-zinc-400 mb-4 font-bold flex items-center gap-2">
                 <Sparkles className="w-3.5 h-3.5 text-[#00E5FF]" />
-                03. Auto-Detecção de Peças
+                05. Auto-Detecção de Peças
               </h3>
               <p className="text-[10px] text-zinc-500 uppercase tracking-wider mb-4 leading-relaxed">
                 Use inteligência geométrica para segmentar braços, pernas, tronco ou identificar peças soltas automaticamente.
@@ -3120,6 +3989,37 @@ export default function Viewer3D() {
               </div>
               
               <div className="space-y-2">
+                {/* Complexidade Analysis Badge */}
+                {stats.faces > 50000 && (
+                  <div className="p-3 bg-amber-500/10 border border-amber-500/20 rounded flex items-start gap-3">
+                    <Info className="w-4 h-4 text-amber-500 shrink-0 mt-0.5" />
+                    <div className="space-y-1">
+                      <p className="text-[10px] font-bold uppercase text-amber-500 tracking-tight">Modelo Complexo Detectado</p>
+                      <p className="text-[9px] text-zinc-400 leading-relaxed">
+                        Este modelo possui alta densidade de faces ({stats.faces.toLocaleString()}). 
+                        Recomendamos a <strong>Divisão Inteligente</strong> para facilitar a pintura de partes comuns como rodas, teto ou estrutura.
+                      </p>
+                    </div>
+                  </div>
+                )}
+
+                <button
+                  onClick={autoSegmentSmart}
+                  className="w-full flex flex-col items-start gap-1.5 p-3 bg-gradient-to-r from-zinc-900 to-[#111] border border-[#00E5FF]/30 hover:border-[#00E5FF] hover:bg-[#151515] transition-all rounded text-left group relative overflow-hidden"
+                  title="Análise heurística para separar corpo, rodas e detalhes"
+                >
+                  <div className="absolute top-0 right-0 p-1">
+                    <Sparkles className="w-3 h-3 text-[#00E5FF] opacity-30 group-hover:opacity-100 transition-opacity" />
+                  </div>
+                  <div className="flex items-center gap-2 text-xs font-black uppercase text-[#00E5FF] group-hover:text-white transition-colors">
+                    <Sparkles className="w-3.5 h-3.5" />
+                    Divisão Inteligente (Carros / Casas)
+                  </div>
+                  <span className="text-[9px] text-zinc-400 uppercase tracking-wider">
+                    Sugerir separação por partes comuns baseada em volume e posição.
+                  </span>
+                </button>
+
                 <button
                   onClick={autoSegmentAnatomy}
                   className="w-full flex flex-col items-start gap-1.5 p-3 bg-[#111] border border-zinc-800 hover:border-[#00E5FF] hover:bg-[#151515] transition-all rounded text-left group"
@@ -3134,19 +4034,30 @@ export default function Viewer3D() {
                   </span>
                 </button>
 
-                <button
-                  onClick={autoSegmentShells}
-                  className="w-full flex flex-col items-start gap-1.5 p-3 bg-[#111] border border-zinc-800 hover:border-[#00E5FF] hover:bg-[#151515] transition-all rounded text-left group"
-                  title="Detecta ilhas 3D e cascas isoladas que não se encostam"
-                >
-                  <div className="flex items-center gap-2 text-xs font-bold uppercase text-zinc-200 group-hover:text-white transition-colors">
-                    <Layers className="w-3.5 h-3.5 text-[#00E5FF]" />
-                    Detectar Peças Desconectadas (Shells)
-                  </div>
-                  <span className="text-[9px] text-zinc-500 uppercase tracking-wider">
-                    Identifica partes e objetos físicos independentes carregados juntos.
-                  </span>
-                </button>
+                <div className="relative group/shell">
+                  <button
+                    onClick={autoSegmentShells}
+                    className="w-full flex flex-col items-start gap-1.5 p-3 bg-[#111] border border-zinc-800 hover:border-[#00E5FF] hover:bg-[#151515] transition-all rounded text-left group"
+                    title="Detecta ilhas 3D e cascas isoladas que não se encostam"
+                  >
+                    <div className="flex items-center gap-2 text-xs font-bold uppercase text-zinc-200 group-hover:text-white transition-colors">
+                      <Layers className="w-3.5 h-3.5 text-[#00E5FF]" />
+                      Detectar Peças Desconectadas (Shells)
+                    </div>
+                    <span className="text-[9px] text-zinc-500 uppercase tracking-wider">
+                      Identifica partes e objetos físicos independentes carregados juntos.
+                    </span>
+                  </button>
+                  
+                  {stats.faces > 150000 && (
+                    <div className="mt-1 flex items-center gap-1.5 px-2 py-1 bg-amber-500/10 border border-amber-500/20 rounded">
+                      <Info className="w-3 h-3 text-amber-500" />
+                      <span className="text-[8px] text-amber-500 uppercase font-black tracking-tighter">
+                        Alta densidade detectada: Pode falhar em malhas unificadas.
+                      </span>
+                    </div>
+                  )}
+                </div>
               </div>
             </section>
           )}
@@ -3157,7 +4068,7 @@ export default function Viewer3D() {
               <div className="flex items-center justify-between mb-4">
                 <h3 className="text-[11px] uppercase tracking-widest text-zinc-400 font-bold flex items-center gap-2">
                   <Ruler className="w-3.5 h-3.5 text-[#00E5FF]" />
-                  04. Marca d'água 3D / 3D Watermark
+                  06. Marca d'água 3D / 3D Watermark
                 </h3>
                 
                 <button
@@ -3369,7 +4280,7 @@ export default function Viewer3D() {
           {/* EXPORT PARTS FOR PRINT */}
           {modelGeometry && (
             <section className="flex-1 flex flex-col justify-end border-t border-zinc-900 pt-6">
-              <h3 className="text-[11px] uppercase tracking-widest text-zinc-400 mb-4 font-bold">05. Generate Separated Prints / Exportar</h3>
+              <h3 className="text-[11px] uppercase tracking-widest text-zinc-400 mb-4 font-bold">07. Generate Separated Prints / Exportar</h3>
               <p className="text-[10px] text-zinc-500 uppercase tracking-wider mb-4 leading-relaxed">
                 Export each colored region as an independent watertight STL mesh file, perfect for multi-extruder printing or separate part printing.
               </p>
@@ -3487,6 +4398,28 @@ export default function Viewer3D() {
           © VÉRTICE STUDIO
         </div>
       </footer>
+
+      {/* GLOBAL PROCESSING OVERLAY */}
+      {isProcessing && (
+        <div className="fixed inset-0 z-[9999] flex flex-col items-center justify-center bg-black/80 backdrop-blur-sm transition-all animate-in fade-in duration-300">
+          <div className="flex flex-col items-center gap-6 p-10 bg-zinc-950 border border-zinc-800 rounded-lg shadow-2xl max-w-sm w-full text-center">
+            <div className="relative">
+              <Loader2 className="w-12 h-12 text-[#00E5FF] animate-spin" />
+              <div className="absolute inset-0 blur-xl bg-[#00E5FF]/20 animate-pulse"></div>
+            </div>
+            <div className="space-y-2">
+              <h3 className="text-sm font-black uppercase tracking-[0.2em] text-white">Processando Geometria</h3>
+              <p className="text-[10px] text-zinc-400 uppercase tracking-widest leading-relaxed">
+                {processingMessage || "Aguarde enquanto analisamos os dados 3D do modelo..."}
+              </p>
+            </div>
+            <div className="w-full h-1 bg-zinc-900 rounded-full overflow-hidden">
+              <div className="h-full bg-gradient-to-r from-[#00E5FF] to-[#00B8D4] animate-progress-indefinite"></div>
+            </div>
+            <p className="text-[8px] text-zinc-600 uppercase font-bold">Não feche a página durante esta operação.</p>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

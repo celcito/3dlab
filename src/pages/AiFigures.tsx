@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { Sparkles, History, Loader2, Copy, Bookmark, Save, Trash2, Plus, Check, Image, Download, RefreshCw, Eye, Info, AlertTriangle, Upload, Camera, Link, Activity, Layers } from "lucide-react";
+import { Sparkles, History, Loader2, Copy, Bookmark, Save, Trash2, Plus, Check, Image, Download, RefreshCw, Eye, Info, AlertTriangle, Upload, Camera, Link, Activity, Layers, PenTool } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -54,8 +54,8 @@ export default function AiFigures() {
   const [analysisResult, setAnalysisResult] = useState("");
   const [selectedStyle, setSelectedStyle] = useState<"rpg" | "chibi" | "cyberpunk" | "classic">("rpg");
   const [isDragActive, setIsDragActive] = useState(false);
-  const [activeTab, setActiveTab] = useState<"text" | "photo">("text");
-  const [physicalFormat, setPhysicalFormat] = useState<"statue" | "articulated" | "keychain" | "articulated_keychain">("statue");
+  const [activeTab, setActiveTab] = useState<"text" | "photo" | "lineart">("text");
+  const [physicalFormat, setPhysicalFormat] = useState<"statue" | "articulated" | "keychain" | "articulated_keychain" | "drawing_plate">("statue");
   
   // 3D Model Exporter States
   const [isExporting3D, setIsExporting3D] = useState(false);
@@ -188,7 +188,7 @@ export default function AiFigures() {
   };
 
   // 2. Generate preview image representing the figurine
-  const handleGenerateImage = async (promptToUse?: string) => {
+  const handleGenerateImage = async (promptToUse?: string, overrideFormat?: string) => {
     const targetPrompt = promptToUse || result || prompt;
     if (!targetPrompt) return;
 
@@ -202,7 +202,7 @@ export default function AiFigures() {
         body: JSON.stringify({
           prompt: targetPrompt,
           aspectRatio,
-          physicalFormat
+          physicalFormat: overrideFormat || physicalFormat
         })
       });
 
@@ -423,6 +423,17 @@ export default function AiFigures() {
                 <Camera className="w-3.5 h-3.5" />
                 Foto para Boneco (Selfie 3D)
               </button>
+              <button
+                onClick={() => setActiveTab("lineart")}
+                className={`pb-3 px-1 text-[10px] uppercase font-black tracking-widest border-b-2 transition-all cursor-pointer flex items-center gap-1.5 ${
+                  activeTab === "lineart"
+                    ? "border-[#00E5FF] text-white"
+                    : "border-transparent text-zinc-500 hover:text-zinc-300"
+                }`}
+              >
+                <PenTool className="w-3.5 h-3.5" />
+                Placas de Desenhar
+              </button>
             </div>
 
             {/* FORMATO FÍSICO / PHYSICAL FORMAT SELECTOR */}
@@ -434,7 +445,7 @@ export default function AiFigures() {
                 </label>
               </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
                 {[
                   {
                     id: "statue",
@@ -455,17 +466,25 @@ export default function AiFigures() {
                   {
                     id: "keychain",
                     label: "Mini Chaveiro",
-                    desc: "Tamanho reduzido com olhal/anel de fixação superior na cabeça.",
+                    desc: "Tamanho reduzido com olhal/anel de fixação superior.",
                     icon: Link,
                     badge: "Compacto",
                     color: "border-zinc-800 hover:border-zinc-700 bg-[#0d0d0d]"
                   },
                   {
                     id: "articulated_keychain",
-                    label: "Chaveiro Articulado",
+                    label: "Chaveiro Flex",
                     desc: "Corpo flexível com articulações e anel superior integrado.",
                     icon: Sparkles,
                     badge: "Híbrido",
+                    color: "border-zinc-800 hover:border-zinc-700 bg-[#0d0d0d]"
+                  },
+                  {
+                    id: "drawing_plate",
+                    label: "Placa 2D",
+                    desc: "Placa de desenhar. Relevo 2D estilo lineart para pintura.",
+                    icon: PenTool,
+                    badge: "Lineart",
                     color: "border-zinc-800 hover:border-zinc-700 bg-[#0d0d0d]"
                   }
                 ].map((item) => {
@@ -649,7 +668,7 @@ export default function AiFigures() {
                   </div>
                 </div>
               </div>
-            ) : (
+            ) : activeTab === "photo" ? (
               <div className="space-y-6 animate-fadeIn">
                 {/* Upload block */}
                 <div className="bg-[#111] border border-zinc-900 p-6 rounded-lg space-y-5">
@@ -778,6 +797,47 @@ export default function AiFigures() {
                     </p>
                   </div>
                 )}
+              </div>
+            ) : (
+              <div className="space-y-6 animate-fadeIn">
+                <div className="bg-[#111] border border-zinc-900 p-6 rounded-lg space-y-5">
+                  <div className="flex items-center justify-between">
+                    <label className="text-[10px] uppercase text-[#00E5FF] font-black tracking-widest flex items-center">
+                      <span>01. Descrever Placa / Lineart Concept</span>
+                      <HelpTooltip text="Descreva o que será desenhado em lineart na sua placa." />
+                    </label>
+                  </div>
+
+                  <div className="space-y-4">
+                    <input 
+                      value={prompt}
+                      onChange={(e) => setPrompt(e.target.value)}
+                      placeholder="Ex: carro esportivo, dinossauro t-rex, castelo..."
+                      className="w-full bg-transparent border-b border-zinc-800 outline-none text-xl font-mono text-white py-2 focus:border-[#00E5FF] transition-colors"
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter" && prompt) {
+                          handleOptimizePrompt();
+                        }
+                      }}
+                    />
+
+                    <div className="flex flex-wrap gap-3 pt-2">
+                      <button 
+                        onClick={() => {
+                          setPhysicalFormat("drawing_plate");
+                          const basePrompt = prompt.trim() || "figura simples";
+                          const lineartPrompt = `${basePrompt}, simple lineart drawing plate, black outlines on white background, coloring book style, minimal details, vector style flat 2d design, single color continuous line, high contrast`;
+                          handleGenerateImage(lineartPrompt, "drawing_plate");
+                        }} 
+                        disabled={isGeneratingImage || !prompt}
+                        className="flex-1 bg-white text-black font-black uppercase text-[10px] py-3 px-6 tracking-widest hover:bg-[#00E5FF] hover:text-black transition-all disabled:opacity-50 flex items-center justify-center gap-2 rounded cursor-pointer"
+                      >
+                        {isGeneratingImage ? <Loader2 className="w-4 h-4 animate-spin" /> : <PenTool className="w-4 h-4" />}
+                        {isGeneratingImage ? "Desenhando..." : "Gerar Placa de Desenhar"}
+                      </button>
+                    </div>
+                  </div>
+                </div>
               </div>
             )}
 
@@ -1005,6 +1065,7 @@ export default function AiFigures() {
                   {physicalFormat === "articulated_keychain" && "Chaveiro Articulado"}
                   {physicalFormat === "keychain" && "Chaveiro Mini"}
                   {physicalFormat === "statue" && "Estátua Estática"}
+                  {physicalFormat === "drawing_plate" && "Placa de Desenhar 2D"}
                 </span>
               </div>
               <ul className="space-y-3 text-[10px] leading-relaxed text-zinc-500 font-sans font-medium">
@@ -1014,6 +1075,19 @@ export default function AiFigures() {
                     <strong>Geração do Arquivo STL/OBJ:</strong> Copie o <strong>Prompt Otimizado</strong> gerado à esquerda e cole em geradores de malha 3D volumétricos como <strong>Meshy.ai</strong>, <strong>Tripo3D.ai</strong>, ou <strong>Luma Genie</strong>. Eles processarão o texto ou a foto e fornecerão o arquivo .STL/.OBJ para download instantâneo.
                   </span>
                 </li>
+
+                {physicalFormat === "drawing_plate" && (
+                  <>
+                    <li className="flex items-start gap-1.5">
+                      <span className="text-[#00E5FF] font-black font-mono shrink-0">2.</span>
+                      <span><strong>Conversão 2D para 3D (SVG para STL):</strong> A imagem gerada (Placa de Desenhar) pode ser baixada e convertida em SVG usando conversores online, e importada em softwares CAD (Tinkercad, Fusion360) para extrusão e geração do STL final.</span>
+                    </li>
+                    <li className="flex items-start gap-1.5">
+                      <span className="text-[#00E5FF] font-black font-mono shrink-0">3.</span>
+                      <span><strong>Fatiamento de Relevo (Lithophane/Hueforge):</strong> Em vez de malha 3D, você também pode usar a imagem lineart diretamente em softwares como Hueforge para impressão multicor em 2D.</span>
+                    </li>
+                  </>
+                )}
 
                 {physicalFormat === "statue" && (
                   <>

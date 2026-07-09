@@ -145,6 +145,15 @@ body {
   100% { transform: translateY(200%); }
 }
 
+@keyframes progress-indefinite {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(200%); }
+}
+
 .animate-scanner-loop {
   animation: scanner-loop 2s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+}
+
+.animate-progress-indefinite {
+  animation: progress-indefinite 1.5s ease-in-out infinite;
 }
