@@ -38,7 +38,7 @@ export default function VaseGenerator() {
     waves: 0,
     waveIntensity: 2,
     baseThickness: 2,
-    baseColor: "#00E5FF"
+    baseColor: "#e0e0e0"
   });
 
   const [successMsg, setSuccessMsg] = useState("");

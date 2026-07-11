@@ -5,7 +5,7 @@
 
 import { BrowserRouter, Routes, Route, Link, useLocation } from "react-router-dom";
 import { Brush, Cuboid, BoxSelect, Calculator, Megaphone, Sparkles, Scissors, ArrowRightLeft, QrCode, Palette, Gamepad2, Baseline, Waves, UserCircle2, Box, Flower } from "lucide-react";
-import PaintMixer from "./pages/PaintMixer";
+import FilamentPainter from "./pages/FilamentPainter";
 import AiFigures from "./pages/AiFigures";
 import Viewer3D from "./pages/Viewer3D";
 import PriceCalculator from "./pages/PriceCalculator";
@@ -23,6 +23,7 @@ import FlexiModelCreator from "./pages/FlexiModelCreator";
 import Face3DGenerator from "./pages/Face3DGenerator";
 import BinGenerator from "./pages/BinGenerator";
 import VaseGenerator from "./pages/VaseGenerator";
+import LithophaneGenerator from "./pages/LithophaneGenerator";
 
 function NavItem({ to, icon: Icon, label, description }: { to: string; icon: any; label: string; description: string }) {
   const location = useLocation();
@@ -69,7 +70,7 @@ function Layout({ children }: { children: React.ReactNode }) {
             <NavItem to="/" icon={BoxSelect} label="Separar Partes 3D" description="3D Viewer & Slicer" />
             <NavItem to="/face-3d" icon={UserCircle2} label="Face 3D" description="Foto em Relevo 3D" />
             <NavItem to="/vase-generator" icon={Flower} label="Vase Maker" description="Vasos Paramétricos" />
-            <NavItem to="/bin-generator" icon={Box} label="Bin Generator" description="Organizadores Sob Medida" />
+            <NavItem to="/bin-generator" icon={Box} label="Bin & Tray Generator" description="Custom bins and sorting trays" />
             <NavItem to="/flexi-creator" icon={Waves} label="Criador Flexi" description="Modelos Articulados" />
             <NavItem to="/name-sign" icon={Baseline} label="Gerador de Placas" description="Placas e Letreiros" />
             <NavItem to="/fidget-clicker" icon={Gamepad2} label="Clicker Maker" description="Fidget Chaveiro 3D" />
@@ -78,7 +79,8 @@ function Layout({ children }: { children: React.ReactNode }) {
             <NavItem to="/svg-converter" icon={ArrowRightLeft} label="Vetorizador Imagem" description="PNG para SVG" />
             <NavItem to="/cookie-cutter-maker" icon={Scissors} label="Cortador de Biscoitos" description="Biscoito CUT Maker" />
             <NavItem to="/plate-creator" icon={Sparkles} label="Criador de Placas 3D" description="3D Plate Designer" />
-            <NavItem to="/paint-mixer" icon={Brush} label="Misturador de Tintas" description="Paint Color Mixer" />
+            <NavItem to="/filament-painter" icon={Brush} label="Filament Painter" description="Multicolor Print Generator" />
+            <NavItem to="/lithophane-generator" icon={Box} label="Lithophane Maker" description="Foto em Relevo STL" />
             <NavItem to="/ai-figures" icon={Cuboid} label="Gerador de Figuras" description="AI Character Figures" />
             <NavItem to="/price-calculator" icon={Calculator} label="Calculadora de Preços" description="Price Calculator" />
             <NavItem to="/marketing-generator" icon={Megaphone} label="Gerador de Marketing" description="Product Marketing" />
@@ -112,7 +114,8 @@ export default function App() {
           <Route path="/svg-converter" element={<SvgConverter />} />
           <Route path="/cookie-cutter-maker" element={<CookieCutterMaker />} />
           <Route path="/plate-creator" element={<PlateCreator />} />
-          <Route path="/paint-mixer" element={<PaintMixer />} />
+          <Route path="/filament-painter" element={<FilamentPainter />} />
+          <Route path="/lithophane-generator" element={<LithophaneGenerator />} />
           <Route path="/ai-figures" element={<AiFigures />} />
           <Route path="/price-calculator" element={<PriceCalculator />} />
           <Route path="/marketing-generator" element={<MarketingGenerator />} />

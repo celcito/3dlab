@@ -13,7 +13,7 @@ import * as BufferGeometryUtils from "three/examples/jsm/utils/BufferGeometryUti
 
 // Vibrant colors for print separation groups
 const GROUPS = [
-  { id: 0, name: "Base Principal (Cinza / Gray)", color: "#333333", border: "border-zinc-700" },
+  { id: 0, name: "Base Principal (Cinza / Gray)", color: "#e0e0e0", border: "border-zinc-700" },
   { id: 1, name: "Parte 1 (Ciano / Cyan)", color: "#00E5FF", border: "border-[#00E5FF]" },
   { id: 2, name: "Parte 2 (Vermelho / Red)", color: "#FF1744", border: "border-[#FF1744]" },
   { id: 3, name: "Parte 3 (Verde / Green)", color: "#00FF41", border: "border-[#00FF41]" },
@@ -478,7 +478,7 @@ function mergeGeometriesFallback(geometries: THREE.BufferGeometry[]): THREE.Buff
 
 export default function Viewer3D() {
   const [groups, setGroups] = useState([
-    { id: 0, name: "Base Principal (Cinza)", color: "#333333", border: "border-zinc-700" },
+    { id: 0, name: "Base Principal (Cinza)", color: "#e0e0e0", border: "border-zinc-700" },
     { id: 1, name: "Parte 1 (Ciano)", color: "#00E5FF", border: "border-[#00E5FF]" },
     { id: 2, name: "Parte 2 (Vermelho)", color: "#FF1744", border: "border-[#FF1744]" },
     { id: 3, name: "Parte 3 (Verde)", color: "#00FF41", border: "border-[#00FF41]" },
@@ -2018,7 +2018,7 @@ export default function Viewer3D() {
 
         // Reset groups to default names for shell mode
         setGroups([
-          { id: 0, name: "Base Principal (Cinza)", color: "#333333", border: "border-zinc-700" },
+          { id: 0, name: "Base Principal (Cinza)", color: "#e0e0e0", border: "border-zinc-700" },
           { id: 1, name: "Grupo 1", color: "#00E5FF", border: "border-[#00E5FF]" },
           { id: 2, name: "Grupo 2", color: "#FF1744", border: "border-[#FF1744]" },
           { id: 3, name: "Grupo 3", color: "#00FF41", border: "border-[#00FF41]" },
@@ -2131,7 +2131,7 @@ export default function Viewer3D() {
         });
 
         setGroups([
-          { id: 0, name: "Base Principal (Cinza)", color: "#333333", border: "border-zinc-700" },
+          { id: 0, name: "Base Principal (Cinza)", color: "#e0e0e0", border: "border-zinc-700" },
           { id: 1, name: "Estrutura / Corpo Principal", color: "#00E5FF", border: "border-[#00E5FF]" },
           { id: 2, name: "Base / Rodas / Inferior", color: "#FF1744", border: "border-[#FF1744]" },
           { id: 3, name: "Topo / Teto / Superior", color: "#00FF41", border: "border-[#00FF41]" },
@@ -2143,7 +2143,7 @@ export default function Viewer3D() {
           for (let i = 0; i < count; i++) {
             const gId = newGroups[i];
             const color = new THREE.Color(getGroupColor(gId, [
-              { id: 0, name: "Base Principal (Cinza)", color: "#333333", border: "border-zinc-700" },
+              { id: 0, name: "Base Principal (Cinza)", color: "#e0e0e0", border: "border-zinc-700" },
               { id: 1, name: "Estrutura / Corpo Principal", color: "#00E5FF", border: "border-[#00E5FF]" },
               { id: 2, name: "Base / Rodas / Inferior", color: "#FF1744", border: "border-[#FF1744]" },
               { id: 3, name: "Topo / Teto / Superior", color: "#00FF41", border: "border-[#00FF41]" },
