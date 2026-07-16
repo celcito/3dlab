@@ -684,7 +684,7 @@ function CookieCutterScene({
               position={[0, 0, config.coloringBaseThickness * sc]}
             >
               <meshStandardMaterial 
-                color="#121214" // Solid charcoal black details
+                color="#cccccc" // Solid charcoal black details
                 roughness={0.15} 
                 metalness={0.2} 
                 wireframe={showWireframe} 

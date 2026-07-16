@@ -394,16 +394,16 @@ function Scene({ config, dimensions }: { config: ClickerConfig; dimensions: any 
               {/* Hole visualizer */}
               <mesh>
                 <boxGeometry args={[sw, sw, pt + 0.1]} />
-                <meshStandardMaterial color="#000" />
+                <meshStandardMaterial color="#eeeeee" />
               </mesh>
               {/* Switch Placeholder */}
               <mesh position={[0, 0, 0.4]}>
                 <boxGeometry args={[sw - 0.1, sw - 0.1, 0.8]} />
-                <meshStandardMaterial color="#333" roughness={0.8} />
+                <meshStandardMaterial color="#dddddd" roughness={0.8} />
               </mesh>
               <mesh position={[0, 0, 1]}>
                 <boxGeometry args={[sw * 0.8, sw * 0.8, 0.5]} />
-                <meshStandardMaterial color="#222" />
+                <meshStandardMaterial color="#cccccc" />
               </mesh>
             </group>
           );
@@ -414,7 +414,7 @@ function Scene({ config, dimensions }: { config: ClickerConfig; dimensions: any 
       {config.keychainHole && (
         <mesh position={[(width/20) - (config.wallThickness/20), (depth/20) - (config.wallThickness/20), (height/20)]}>
           <cylinderGeometry args={[config.holeDiameter/20, config.holeDiameter/20, height/10, 32]} />
-          <meshStandardMaterial color="#000" />
+          <meshStandardMaterial color="#eeeeee" />
         </mesh>
       )}
     </group>

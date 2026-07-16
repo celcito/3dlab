@@ -1221,7 +1221,25 @@ export default function Viewer3D() {
 
   const handleResetCamera = () => {
     if (controlsRef.current) {
-      controlsRef.current.reset();
+      const controls = controlsRef.current;
+      const camera = controls.object;
+      
+      controls.target.set(0, 0, 0);
+
+      if (modelDimensions) {
+        const maxDim = Math.max(modelDimensions.x, modelDimensions.y, modelDimensions.z);
+        const distance = maxDim > 0 ? maxDim * 1.5 : 5;
+        if (camera.isPerspectiveCamera) {
+          camera.position.set(0, 0, distance);
+        } else {
+          camera.zoom = 1;
+          camera.updateProjectionMatrix();
+        }
+      } else {
+        controls.reset();
+      }
+      
+      controls.update();
     }
   };
 
@@ -2476,11 +2494,12 @@ export default function Viewer3D() {
                     <span className="text-xl font-bold leading-none select-none">-</span>
                   </button>
                   <button
-                    title="Reset Camera"
+                    title="Reset View"
                     onClick={handleResetCamera}
-                    className="w-10 h-10 flex items-center justify-center bg-[#0A0A0A]/90 border border-zinc-800 text-zinc-400 hover:text-[#00E5FF] hover:border-[#00E5FF] backdrop-blur-md transition-all active:scale-95 rounded"
+                    className="h-10 px-3 flex items-center justify-center gap-2 bg-[#0A0A0A]/90 border border-zinc-800 text-zinc-400 hover:text-[#00E5FF] hover:border-[#00E5FF] backdrop-blur-md transition-all active:scale-95 rounded"
                   >
                     <RotateCcw className="w-4 h-4" />
+                    <span className="text-[10px] uppercase font-bold tracking-wider">Reset View</span>
                   </button>
                 </div>
               </>
