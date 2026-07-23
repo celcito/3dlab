@@ -4,6 +4,7 @@ import { OrbitControls, Grid, Center, PerspectiveCamera, ContactShadows, Edges, 
 import * as THREE from "three";
 import * as BufferGeometryUtils from "three/examples/jsm/utils/BufferGeometryUtils.js";
 import { STLExporter } from "three/examples/jsm/exporters/STLExporter.js";
+import { Evaluator, Brush, SUBTRACTION } from 'three-bvh-csg';
 import { 
   Box, Download, Settings, Sliders, 
   Trash2, Layers, Move, MousePointer2, 
@@ -25,24 +26,31 @@ interface BinConfig {
   innerFillet: number;
   stackable: boolean;
   baseColor: string;
+  type: "bin" | "battery_aa" | "battery_aaa" | "battery_9v";
+  batteriesX: number;
+  batteriesY: number;
 }
 
-const PRESETS = [
+const PRESETS: { name: string; config: BinConfig }[] = [
   {
     name: "Gaveta Escritório",
-    config: { width: 120, depth: 180, height: 40, thickness: 1.2, radius: 4, dividersX: 2, dividersY: 2, stackable: false }
+    config: { width: 120, depth: 180, height: 40, thickness: 1.2, radius: 4, dividersX: 2, dividersY: 2, stackable: false, type: "bin", batteriesX: 0, batteriesY: 0, innerFillet: 2, baseColor: "#e0e0e0" }
   },
   {
     name: "Porta-Ferramentas",
-    config: { width: 200, depth: 100, height: 60, thickness: 2.0, radius: 8, dividersX: 4, dividersY: 1, stackable: true }
+    config: { width: 200, depth: 100, height: 60, thickness: 2.0, radius: 8, dividersX: 4, dividersY: 1, stackable: true, type: "bin", batteriesX: 0, batteriesY: 0, innerFillet: 2, baseColor: "#e0e0e0" }
   },
   {
-    name: "Organizador de Mesa",
-    config: { width: 80, depth: 80, height: 80, thickness: 1.6, radius: 6, dividersX: 1, dividersY: 1, stackable: false }
+    name: "Organizador AA",
+    config: { width: 100, depth: 100, height: 30, thickness: 1.6, radius: 2, dividersX: 0, dividersY: 0, stackable: false, type: "battery_aa", batteriesX: 3, batteriesY: 3, innerFillet: 2, baseColor: "#e0e0e0" }
   },
   {
-    name: "Estojo Slim",
-    config: { width: 180, depth: 60, height: 20, thickness: 1.0, radius: 2, dividersX: 1, dividersY: 3, stackable: true }
+    name: "Organizador AAA",
+    config: { width: 80, depth: 80, height: 30, thickness: 1.6, radius: 2, dividersX: 0, dividersY: 0, stackable: false, type: "battery_aaa", batteriesX: 3, batteriesY: 3, innerFillet: 2, baseColor: "#e0e0e0" }
+  },
+  {
+    name: "Organizador 9V",
+    config: { width: 100, depth: 60, height: 30, thickness: 1.6, radius: 2, dividersX: 0, dividersY: 0, stackable: false, type: "battery_9v", batteriesX: 3, batteriesY: 2, innerFillet: 2, baseColor: "#e0e0e0" }
   }
 ];
 
@@ -57,7 +65,10 @@ export default function BinGenerator() {
     dividersY: 1,
     innerFillet: 2,
     stackable: false,
-    baseColor: "#e0e0e0"
+    baseColor: "#e0e0e0",
+    type: "bin",
+    batteriesX: 0,
+    batteriesY: 0
   });
 
   const [successMsg, setSuccessMsg] = useState("");
@@ -136,10 +147,43 @@ export default function BinGenerator() {
         geometries.push(divYGeom.toNonIndexed());
       }
 
-      // 4. Inner Fillets (Optional visual sugar for easier picking)
-      // This is complex for a merge, so we'll skip for base STL or use small boxes
+      let merged;
+      if (config.type !== "bin") {
+        // Battery case - need to recreate the CSG here for export
+        const binBrush = new Brush(BufferGeometryUtils.mergeGeometries(geometries));
+        binBrush.updateMatrixWorld();
+        
+        const batteryRadius = config.type === "battery_aa" ? 0.75 : config.type === "battery_aaa" ? 0.55 : 1.3;
+        const batteries: THREE.Mesh[] = [];
+        
+        if (config.batteriesX > 0 && config.batteriesY > 0) {
+            const spacingX = innerW / config.batteriesX;
+            const spacingY = innerD / config.batteriesY;
+            
+            for(let ix = 0; ix < config.batteriesX; ix++) {
+                for(let iy = 0; iy < config.batteriesY; iy++) {
+                    const bx = -innerW/2 + spacingX/2 + ix * spacingX;
+                    const by = -innerD/2 + spacingY/2 + iy * spacingY;
+                    
+                    const cyl = new THREE.CylinderGeometry(batteryRadius, batteryRadius, h, 16);
+                    cyl.translate(bx, by, h/2 + t); // offset for base thickness
+                    batteries.push(new THREE.Mesh(cyl));
+                }
+            }
+        }
+        const batteryBrush = new Brush(BufferGeometryUtils.mergeGeometries(batteries.map(m => {
+            const geom = m.geometry.clone();
+            geom.applyMatrix4(m.matrix);
+            return geom;
+        })));
+        batteryBrush.updateMatrixWorld();
+        const evaluator = new Evaluator();
+        const result = evaluator.evaluate(binBrush, batteryBrush, SUBTRACTION);
+        merged = result.geometry.rotateX(-Math.PI / 2);
+      } else {
+        merged = BufferGeometryUtils.mergeGeometries(geometries);
+      }
       
-      const merged = BufferGeometryUtils.mergeGeometries(geometries);
       const mesh = new THREE.Mesh(merged);
       mesh.rotation.x = -Math.PI / 2;
       mesh.updateMatrixWorld();
@@ -188,7 +232,7 @@ export default function BinGenerator() {
                 <button
                   key={idx}
                   onClick={() => setConfig({ ...config, ...preset.config, divPositionsX: undefined, divPositionsY: undefined })}
-                  className="text-[9px] font-bold uppercase tracking-wider bg-zinc-900 hover:bg-[#00E5FF]/20 text-zinc-400 hover:text-[#00E5FF] transition-colors py-2 rounded border border-zinc-800 hover:border-[#00E5FF]/50"
+                  className={`text-[9px] font-bold uppercase tracking-wider transition-colors py-2 rounded border border-zinc-800 ${config.type === preset.config.type ? 'bg-[#00E5FF]/20 text-[#00E5FF] border-[#00E5FF]/50' : 'bg-zinc-900 hover:bg-[#00E5FF]/20 text-zinc-400 hover:text-[#00E5FF]'}`}
                 >
                   {preset.name}
                 </button>
@@ -253,31 +297,63 @@ export default function BinGenerator() {
               <p className="text-[9px] text-[#00E5FF] uppercase font-bold leading-tight">Dica: Você pode arrastar as divisórias diretamente no preview 3D para reposicioná-las.</p>
             </div>
             
-            <div className="space-y-3">
-              <div className="flex justify-between">
-                <label className="text-[9px] uppercase font-bold text-zinc-600">Colunas</label>
-                <span className="text-[10px] font-mono text-[#00E5FF]">{config.dividersX + 1}</span>
-              </div>
-              <input 
-                type="range" min="1" max="9" step="1" 
-                value={config.dividersX + 1} 
-                onChange={(e) => setConfig({...config, dividersX: parseInt(e.target.value) - 1})}
-                className="w-full accent-[#00E5FF] h-1.5 bg-zinc-800 rounded-lg appearance-none cursor-pointer"
-              />
-            </div>
+            {config.type === "bin" ? (
+              <>
+                <div className="space-y-3">
+                  <div className="flex justify-between">
+                    <label className="text-[9px] uppercase font-bold text-zinc-600">Colunas</label>
+                    <span className="text-[10px] font-mono text-[#00E5FF]">{config.dividersX + 1}</span>
+                  </div>
+                  <input 
+                    type="range" min="1" max="9" step="1" 
+                    value={config.dividersX + 1} 
+                    onChange={(e) => setConfig({...config, dividersX: parseInt(e.target.value) - 1})}
+                    className="w-full accent-[#00E5FF] h-1.5 bg-zinc-800 rounded-lg appearance-none cursor-pointer"
+                  />
+                </div>
 
-            <div className="space-y-3">
-              <div className="flex justify-between">
-                <label className="text-[9px] uppercase font-bold text-zinc-600">Linhas</label>
-                <span className="text-[10px] font-mono text-[#00E5FF]">{config.dividersY + 1}</span>
-              </div>
-              <input 
-                type="range" min="1" max="9" step="1" 
-                value={config.dividersY + 1} 
-                onChange={(e) => setConfig({...config, dividersY: parseInt(e.target.value) - 1})}
-                className="w-full accent-[#00E5FF] h-1.5 bg-zinc-800 rounded-lg appearance-none cursor-pointer"
-              />
-            </div>
+                <div className="space-y-3">
+                  <div className="flex justify-between">
+                    <label className="text-[9px] uppercase font-bold text-zinc-600">Linhas</label>
+                    <span className="text-[10px] font-mono text-[#00E5FF]">{config.dividersY + 1}</span>
+                  </div>
+                  <input 
+                    type="range" min="1" max="9" step="1" 
+                    value={config.dividersY + 1} 
+                    onChange={(e) => setConfig({...config, dividersY: parseInt(e.target.value) - 1})}
+                    className="w-full accent-[#00E5FF] h-1.5 bg-zinc-800 rounded-lg appearance-none cursor-pointer"
+                  />
+                </div>
+              </>
+            ) : (
+              <>
+                <div className="space-y-3">
+                  <div className="flex justify-between">
+                    <label className="text-[9px] uppercase font-bold text-zinc-600">Colunas (Baterias)</label>
+                    <span className="text-[10px] font-mono text-[#00E5FF]">{config.batteriesX}</span>
+                  </div>
+                  <input 
+                    type="range" min="1" max="10" step="1" 
+                    value={config.batteriesX} 
+                    onChange={(e) => setConfig({...config, batteriesX: parseInt(e.target.value)})}
+                    className="w-full accent-[#00E5FF] h-1.5 bg-zinc-800 rounded-lg appearance-none cursor-pointer"
+                  />
+                </div>
+
+                <div className="space-y-3">
+                  <div className="flex justify-between">
+                    <label className="text-[9px] uppercase font-bold text-zinc-600">Linhas (Baterias)</label>
+                    <span className="text-[10px] font-mono text-[#00E5FF]">{config.batteriesY}</span>
+                  </div>
+                  <input 
+                    type="range" min="1" max="10" step="1" 
+                    value={config.batteriesY} 
+                    onChange={(e) => setConfig({...config, batteriesY: parseInt(e.target.value)})}
+                    className="w-full accent-[#00E5FF] h-1.5 bg-zinc-800 rounded-lg appearance-none cursor-pointer"
+                  />
+                </div>
+              </>
+            )}
 
             <div className="bg-zinc-900/50 p-3 rounded-lg border border-zinc-800 flex justify-between items-center">
               <div>
@@ -567,6 +643,53 @@ function BinMesh({ config, setConfig }: { config: BinConfig; setConfig: React.Di
     return { baseGeom: bGeom, wallGeom: wGeom, lipGeom: lGeom };
   }, [w, d, h, t, r, innerW, innerD, stackable]);
 
+  const finalMesh = useMemo(() => {
+    if (config.type === "bin") return null;
+
+    const binBrush = new Brush(new THREE.BufferGeometry());
+    // Merge base and wall for CSG
+    const combined = BufferGeometryUtils.mergeGeometries([baseGeom, wallGeom]);
+    combined.translate(0, 0, 0); // They are already positioned
+    binBrush.geometry = combined;
+    binBrush.updateMatrixWorld();
+
+    // Battery layout
+    const batteryRadius = config.type === "battery_aa" ? 0.75 : config.type === "battery_aaa" ? 0.55 : 1.3;
+    const batteries: THREE.Mesh[] = [];
+    
+    if (config.batteriesX > 0 && config.batteriesY > 0) {
+      const spacingX = innerW / config.batteriesX;
+      const spacingY = innerD / config.batteriesY;
+      
+      for(let ix = 0; ix < config.batteriesX; ix++) {
+        for(let iy = 0; iy < config.batteriesY; iy++) {
+          const bx = -innerW/2 + spacingX/2 + ix * spacingX;
+          const by = -innerD/2 + spacingY/2 + iy * spacingY;
+          
+          const cyl = new THREE.CylinderGeometry(batteryRadius, batteryRadius, h, 16);
+          cyl.translate(bx, by, h/2);
+          batteries.push(new THREE.Mesh(cyl));
+        }
+      }
+    }
+
+    if (batteries.length === 0) return null;
+
+    const batteryBrush = new Brush(BufferGeometryUtils.mergeGeometries(batteries.map(m => {
+        const geom = m.geometry.clone();
+        geom.applyMatrix4(m.matrix);
+        return geom;
+    })));
+    batteryBrush.updateMatrixWorld();
+
+    const evaluator = new Evaluator();
+    const result = evaluator.evaluate(binBrush, batteryBrush, SUBTRACTION);
+    
+    // Position adjust
+    result.geometry.rotateX(-Math.PI / 2);
+    return result;
+  }, [baseGeom, wallGeom, config.type, innerW, innerD, h]);
+
     const lipH = Math.min(t, 0.4);
   const zOffset = stackable ? lipH : 0;
   return (
@@ -577,24 +700,34 @@ function BinMesh({ config, setConfig }: { config: BinConfig; setConfig: React.Di
           <Edges scale={1} threshold={15} color="rgba(0,0,0,0.2)" />
         </mesh>
       )}
-      {/* Base */}
-      <mesh castShadow receiveShadow position={[0, 0, 0]} geometry={baseGeom}>
-        <meshStandardMaterial color={config.baseColor} roughness={0.4} />
-        <Edges scale={1} threshold={15} color="rgba(0,0,0,0.2)" />
-      </mesh>
       
-      {/* Walls */}
-      <mesh castShadow receiveShadow position={[0, 0, t]} geometry={wallGeom}>
-        <meshStandardMaterial color={config.baseColor} roughness={0.4} />
-        <Edges scale={1} threshold={15} color="rgba(0,0,0,0.2)" />
-      </mesh>
+      {finalMesh ? (
+        <mesh castShadow receiveShadow geometry={finalMesh.geometry}>
+          <meshStandardMaterial color={config.baseColor} roughness={0.4} />
+          <Edges scale={1} threshold={15} color="rgba(0,0,0,0.2)" />
+        </mesh>
+      ) : (
+        <>
+          {/* Base */}
+          <mesh castShadow receiveShadow position={[0, 0, 0]} geometry={baseGeom}>
+            <meshStandardMaterial color={config.baseColor} roughness={0.4} />
+            <Edges scale={1} threshold={15} color="rgba(0,0,0,0.2)" />
+          </mesh>
+          
+          {/* Walls */}
+          <mesh castShadow receiveShadow position={[0, 0, t]} geometry={wallGeom}>
+            <meshStandardMaterial color={config.baseColor} roughness={0.4} />
+            <Edges scale={1} threshold={15} color="rgba(0,0,0,0.2)" />
+          </mesh>
+        </>
+      )}
 
       {/* Dividers X */}
-      {Array.from({ length: dividersX }).map((_, i) => (
+      {config.type === "bin" && Array.from({ length: dividersX }).map((_, i) => (
         <DividerX key={`divx-${i}`} index={i} config={config} setConfig={setConfig} innerW={innerW} innerD={innerD} h={h} t={t} />
       ))}
       {/* Dividers Y */}
-      {Array.from({ length: dividersY }).map((_, i) => (
+      {config.type === "bin" && Array.from({ length: dividersY }).map((_, i) => (
         <DividerY key={`divy-${i}`} index={i} config={config} setConfig={setConfig} innerW={innerW} innerD={innerD} h={h} t={t} />
       ))}
     </group>
