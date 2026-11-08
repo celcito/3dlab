@@ -2,6 +2,7 @@ import express from "express";
 import path from "path";
 import { createServer as createViteServer } from "vite";
 import { GoogleGenAI, GenerateVideosOperation, Type } from "@google/genai";
+import { generateProceduralPuzzleArtwork } from "./server/proceduralArt.ts";
 
 async function startServer() {
   const app = express();
@@ -48,7 +49,7 @@ Format requirement: ${formatGuideline}
 Return only the optimized prompt.`;
 
       const response = await ai.models.generateContent({
-        model: "gemini-3.5-flash",
+        model: "gemini-3.7-flash",
         contents: prompt,
         config: {
           systemInstruction,
@@ -198,7 +199,7 @@ You must output a JSON object with two fields:
 - "optimizedPrompt": A highly detailed character prompt in English specifically optimized for generating a 3D digital sculpture image. It should describe a stylized version of the person in the photo with the style: ${selectedStyleText}. It should specify '3D digital sculpture of [stylized description of the person in the photo], ${selectedStyleText}, ${formatPromptText}'. Ensure there are no markdown backticks inside the JSON fields.`;
 
       const response = await ai.models.generateContent({
-        model: "gemini-3.5-flash",
+        model: "gemini-3.7-flash",
         contents: [
           {
             inlineData: {
@@ -376,7 +377,7 @@ Return a JSON object matching this schema:
       contentsParts.push({ text: promptText });
 
       const response = await ai.models.generateContent({
-        model: "gemini-3.5-flash",
+        model: "gemini-3.7-flash",
         contents: { parts: contentsParts },
         config: {
           responseMimeType: "application/json",
@@ -561,14 +562,12 @@ Return a JSON object matching this schema:
         return res.status(400).json({ error: "Prompt is required" });
       }
 
-      if (!process.env.GEMINI_API_KEY) {
+      const apiKey = process.env.GEMINI_API_KEY;
+      if (!apiKey || apiKey.trim() === "") {
         return res.status(500).json({ error: "Gemini API key is not configured" });
       }
 
-      const ai = new GoogleGenAI({ 
-        apiKey: process.env.GEMINI_API_KEY,
-        httpOptions: { headers: { 'User-Agent': 'aistudio-build', 'Authorization': `Bearer ${process.env.GEMINI_API_KEY}` } }
-      });
+      const ai = new GoogleGenAI({ apiKey });
 
       const systemInstruction = `You are an expert SVG designer.
 Your task is to generate a clean, single-path, solid black silhouette SVG of the requested subject (e.g. lizard, snake, dragon, caterpillar).
@@ -578,7 +577,7 @@ Keep the path relatively simple and smooth.
 Output ONLY the raw <svg> code. Do not include markdown formatting or backticks.`;
 
       const response = await ai.models.generateContent({
-        model: "gemini-3.5-flash",
+        model: "gemini-3.7-flash",
         contents: `Generate a top-down silhouette of: ${prompt}`,
         config: { systemInstruction }
       });
@@ -589,8 +588,238 @@ Output ONLY the raw <svg> code. Do not include markdown formatting or backticks.
 
       res.json({ svgCode });
     } catch (error: any) {
-      console.warn("Gemini SVG API auth error, please refresh session");
       res.status(500).json({ error: error.message || "Failed to generate SVG" });
+    }
+  });
+
+  // Puzzle AI Image Generator API
+  app.post("/api/puzzle/generate-image", async (req, res) => {
+    const { prompt, style = "Desenho infantil", model = "gemini-3.1-flash-lite-image", aspectRatio = "1:1" } = req.body;
+    if (!prompt) {
+      return res.status(400).json({ error: "Prompt é obrigatório" });
+    }
+
+    const apiKey = process.env.GEMINI_API_KEY;
+
+    // If API key is present and model is not procedural, attempt Gemini image generation
+    if (apiKey && apiKey.trim() !== "" && model !== "procedural") {
+      try {
+        const ai = new GoogleGenAI({ apiKey });
+
+        const styleGuide: Record<string, string> = {
+          "Desenho infantil": "cute children storybook illustration, bright joyful colors, clean friendly shapes, vibrant, whimsical and clear details, perfectly centered composition, high resolution",
+          "Aquarela": "delicate watercolor painting, soft textured paper grain, artistic gentle washes, vivid pastel highlights, fine artistic strokes",
+          "Realista": "sharp photographic quality, vivid rich textures, natural balanced lighting, highly detailed, beautiful depth",
+          "Pixel Art": "vibrant pixel art, sharp pixel grid, 16-bit retro arcade aesthetic, colorful palette",
+          "Vetor / Cartoon": "clean vector art cartoon illustration, bold outlines, smooth gradient fills, crisp graphic design, flat colors with subtle shading",
+          "3D Cute / Pixar": "delightful 3D animated movie render style, soft ambient occlusion, cute expressive characters, Pixar and Disney animated feature quality, studio lighting",
+          "Páscoa / Ovo Decorado": "decorated Easter egg theme, ornate colorful festive patterns, spring flowers, vibrant cheerful motif, centered composition"
+        };
+
+        const selectedStyleText = styleGuide[style] || `in ${style} art style, colorful, high quality illustration`;
+        const fullPrompt = `${prompt}, ${selectedStyleText}, suitable for a jigsaw puzzle and memory game artwork, centered composition, clear distinct boundaries and rich vibrant elements.`;
+
+        const response = await ai.models.generateContent({
+          model: model || "gemini-3.1-flash-lite-image",
+          contents: {
+            parts: [{ text: fullPrompt }],
+          },
+          config: {
+            imageConfig: {
+              aspectRatio,
+            }
+          },
+        });
+
+        let imageUrl = "";
+        const candidates = response.candidates;
+        if (candidates && candidates[0] && candidates[0].content && candidates[0].content.parts) {
+          for (const part of candidates[0].content.parts) {
+            if (part.inlineData) {
+              const base64EncodeString = part.inlineData.data;
+              imageUrl = `data:image/png;base64,${base64EncodeString}`;
+              break;
+            }
+          }
+        }
+
+        if (imageUrl) {
+          return res.json({ imageUrl, isAiGenerated: true });
+        }
+      } catch (geminiError: any) {
+        // Fall through to procedural fallback gracefully
+      }
+    }
+
+    // Fallback: Generate procedural high-definition vector artwork
+    try {
+      const fallbackImageUrl = generateProceduralPuzzleArtwork(prompt, style);
+      return res.json({ 
+        imageUrl: fallbackImageUrl, 
+        isAiGenerated: false, 
+        notice: "Arte procedural renderizada em alta definição (tema correspondente)."
+      });
+    } catch (fallbackError: any) {
+      return res.status(500).json({ error: "Falha ao gerar imagem do quebra-cabeça" });
+    }
+  });
+
+  // Memory Game Themed Cards Items Generator API
+  app.post("/api/puzzle/generate-memory-themes", async (req, res) => {
+    try {
+      const { theme, count = 6, style = "Desenho infantil" } = req.body;
+      if (!theme) {
+        return res.status(400).json({ error: "Tema é obrigatório" });
+      }
+
+      const apiKey = process.env.GEMINI_API_KEY;
+
+      if (apiKey && apiKey.trim() !== "") {
+        try {
+          const ai = new GoogleGenAI({ apiKey });
+
+          const systemInstruction = `You are an expert children's board game designer. Given a theme (e.g. 'Frutas e Legumes', 'Animais da Fazenda', 'Super-heróis', 'Dinossauros', 'Veículos', 'Páscoa'), generate a list of exactly ${count} completely DIFFERENT and DISTINCT items/species/subjects suitable for memory game cards.
+CRITICAL MANDATE:
+- Every single item in the list MUST be a completely different noun/concept. Never repeat the same species or fruit with minor wording changes (e.g., NEVER include 2 strawberries or 2 apples). For 'Frutas e Legumes', provide 12 completely different distinct items: e.g. ["Morango", "Maçã vermelha", "Banana amarela", "Melancia fatiada", "Laranja", "Uva roxa", "Abacaxi", "Cenoura", "Tomate", "Brócolis", "Berinjela", "Milho"].
+- Return a JSON array of ${count} strings, where each string is a concise Portuguese prompt specifying the individual item clearly and colorfully.`;
+
+          const response = await ai.models.generateContent({
+            model: "gemini-3.7-flash",
+            contents: `Theme: ${theme}, Style: ${style}, Number of unique cards: ${count}`,
+            config: {
+              systemInstruction,
+              responseMimeType: "application/json",
+              responseSchema: {
+                type: Type.ARRAY,
+                items: { type: Type.STRING }
+              }
+            }
+          });
+
+          const items = JSON.parse(response.text?.trim() || "[]");
+          if (Array.isArray(items) && items.length > 0) {
+            return res.json({ items });
+          }
+        } catch (geminiErr: any) {
+          // Fall through to procedural fallback gracefully
+        }
+      }
+
+      // Procedural fallback themes with at least 16 distinct thematic items each
+      const t = theme.toLowerCase();
+      let defaultItems: string[] = [];
+      if (t.includes("pasc") || t.includes("pásc") || t.includes("easter") || t.includes("coelho")) {
+        defaultItems = [
+          "Ovo de Páscoa floral rosa e dourado", "Coelhinho da Páscoa fofo com cenoura",
+          "Cesta de Páscoa rústica com ovos coloridos", "Ovo de Páscoa dourado geométrico",
+          "Pintinho amarelinho saindo da casca", "Ovo de Páscoa azul com estrelas brilhantes",
+          "Coelhinha elegante com laço rosa e flores", "Ovo de Páscoa listrado arco-íris",
+          "Ovo de chocolate com confeitos coloridos", "Coelho mágico com cartola e varinha",
+          "Ovo de Páscoa lilás com borboletas", "Cenoura gigante decorada para Páscoa",
+          "Ovo de Páscoa verde primavera", "Coelhinho saltando no jardim florido",
+          "Ovo de Páscoa mosaico multicolorido", "Guirlanda pascal com ovinhos e laço"
+        ];
+      } else if (t.includes("fazenda") || t.includes("anim")) {
+        defaultItems = [
+          "Vaca malhada simpática no pasto", "Cavalo marrom galopando veloz",
+          "Porquinho rosa fofo na poça d'água", "Ovelha branca fofinha com lã macia",
+          "Pato amarelo nadando na lagoa", "Galo colorido cantando no poleiro",
+          "Cachorrinho pastor da fazenda", "Gatinho brincando com novelo de lã",
+          "Galinha com seus pintinhos amarelinhos", "Burrinho simpático carregando flores",
+          "Cabrito alegre saltando na colina", "Coelho da fazenda comendo couve",
+          "Trator vermelho da fazenda", "Celeiro rústico tradicional de madeira",
+          "Espantalho sorridente na plantação", "Moinho de vento com campo de girassóis"
+        ];
+      } else if (t.includes("safari") || t.includes("selva") || t.includes("selvagem") || t.includes("jungle")) {
+        defaultItems = [
+          "Leão majestoso com juba dourada", "Elefante brincalhão jogando água",
+          "Girafa alta comendo folhas na copa", "Zebra listrada correndo na savana",
+          "Macaco travesso comendo banana", "Panda fofo sentado com bambu",
+          "Tigre corajoso com listras pretas", "Urso pardo simpático no rio",
+          "Hipopótamo mergulhando na água", "Rinoceronte forte na savana",
+          "Canguru com filhotinho na bolsa", "Coala dorminhoco no eucalipto",
+          "Tucano colorido no galho", "Arara azul exuberante voando",
+          "Camaleão mudando de cor", "Leopardo veloz descansando na árvore"
+        ];
+      } else if (t.includes("mar") || t.includes("oceano") || t.includes("aquat") || t.includes("peixe")) {
+        defaultItems = [
+          "Golfinho saltando na onda cristalina", "Tartaruga marinha fofa nadando",
+          "Peixe palhaço colorido no coral", "Polvo roxo simpático com tentáculos",
+          "Estrela do mar brilhante na areia", "Cavalo marinho amarelo gracioso",
+          "Baleia azul gigante esguichando água", "Tubarão amigável sorridente",
+          "Água-viva luminosa flutuando", "Caranguejo vermelho na praia",
+          "Arraia elegante deslizando no mar", "Concha dourada com pérola mágica",
+          "Lagosta vermelha divertida", "Pinguim surfando na geleira",
+          "Submarino amarelo explorador", "Baú do tesouro no fundo do mar"
+        ];
+      } else if (t.includes("espao") || t.includes("espaço") || t.includes("space") || t.includes("astro")) {
+        defaultItems = [
+          "Foguete espacial veloz subindo ao cosmos", "Astronauta flutuando com bandeira",
+          "Planeta Saturno com anéis reluzentes", "Extraterrestre verde simpático sorrindo",
+          "Estrela cadente dourada e brilhante", "Estação espacial orbital tecnológica",
+          "Lua cheia com crateras e bandeira", "Meteoro flamejante cruzando o espaço",
+          "Planeta Marte vermelho com rover explorador", "Sol radiante iluminando as galáxias",
+          "Nave espacial disco voador com luzes", "Telescópio gigante observando estrelas",
+          "Cometa veloz com cauda luminosa", "Buraco de minhoca cósmico colorido",
+          "Satélite espacial com painéis solares", "Constelação brilhante no céu noturno"
+        ];
+      } else if (t.includes("dino")) {
+        defaultItems = [
+          "T-Rex verde simpático rugindo", "Tricerátops azul com três chifres",
+          "Pterodáctilo com asas abertas no céu", "Braquiossauro de pescoço longo gigante",
+          "Estegossauro com placas dorsais laranja", "Ovo de dinossauro rachando com filhote",
+          "Velociraptor veloz e ágil na floresta", "Anquilossauro com cauda de clava resistente",
+          "Espinossauro com vela dorsal impressionante", "Parasaurolofo com crista musical",
+          "Diplodoco herbívoro pastando", "Paquicefalossauro com cabeça dura",
+          "Fóssil de dinossauro na rocha", "Vulcão pré-histórico em erupção",
+          "Pegada gigante de dinossauro na lama", "Selva jurássica com samambaias gigantes"
+        ];
+      } else if (t.includes("veículo") || t.includes("veiculo") || t.includes("carro") || t.includes("transporte")) {
+        defaultItems = [
+          "Carro de corrida vermelho veloz", "Caminhão de bombeiro com sirene e escada",
+          "Avião a jato sobre as nuvens", "Helicóptero de resgate girando hélice",
+          "Trem Maria-Fumaça soltando fumaça", "Navio transatlântico no oceano",
+          "Trator amarelo trabalhando na terra", "Carro de polícia com giroflex azul",
+          "Bicicleta esportiva com cestinha", "Motocicleta veloz de corrida",
+          "Ônibus escolar amarelo tradicional", "Ambulância ágil salvando vidas",
+          "Guindaste gigante de construção", "Submarino explorador marítimo",
+          "Balão de ar quente colorido", "Foguete aeroespacial em lançamento"
+        ];
+      } else if (t.includes("fruta") || t.includes("legume") || t.includes("horta") || t.includes("vegetal") || t.includes("alimento") || t.includes("comida")) {
+        defaultItems = [
+          "Morango doce e suculento com folhinhas verdes",
+          "Maçã vermelha brilhante com folha",
+          "Banana amarela descascada",
+          "Melancia refrescante fatiada",
+          "Laranja suculenta com folhas",
+          "Uvas roxas em cacho abundante",
+          "Abacaxi tropical com coroa verde",
+          "Cenoura laranja crocante com rama verde",
+          "Tomate vermelho redondo maduro",
+          "Brócolis verde saudável tipo arvorezinha",
+          "Berinjela roxa lustrosa",
+          "Milho amarelo na espiga com palha",
+          "Cerejas vermelhas suculentas aos pares",
+          "Limão siciliano amarelo brilhante",
+          "Pêra verde suculenta e saborosa",
+          "Abacate verde cremoso cortado ao meio"
+        ];
+      } else {
+        const themeClean = theme.trim();
+        const descriptors = [
+          "alegre e vibrante", "em destaque com cores vivas", "iluminado e detalhado",
+          "estilizado e simpático", "com cenário temático encantador", "em ação dinâmica",
+          "com brilho e acabamento fino", "em close-up harmonioso", "em ângulo criativo",
+          "sorridente e expressivo", "com efeitos visuais suaves", "em ambiente colorido",
+          "com elementos decorativos", "em alta definição", "elegante e chamativo", "especial e único"
+        ];
+        defaultItems = descriptors.map((desc, idx) => `${themeClean} - Elemento ${idx + 1} (${desc})`);
+      }
+
+      res.json({ items: defaultItems.slice(0, count) });
+    } catch (error: any) {
+      console.error("Memory Theme Generation Error:", error);
+      res.status(500).json({ error: error.message || "Falha ao gerar lista de temas" });
     }
   });
 

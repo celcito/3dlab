@@ -1,6 +1,6 @@
 {
   "name": "Vértice Studio Tools",
-  "description": "Ferramentas Pro para Impressão 3D: Flexi Maker, Gerador de Placas, Clicker Maker, Design Editor, Slicer e muito mais.",
+  "description": "Ferramentas Pro para Impressão 3D: Keychain Maker (Chaveiros Multicor), Gerador de Puzzle 3D & Molde/Bandeja, Low Poly 3D Maker, Flexi Maker, Clip Maker, Gerador de Placas, Clicker Maker e Slicer.",
   "requestFramePermissions": [],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }

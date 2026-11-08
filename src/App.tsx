@@ -4,7 +4,7 @@
  */
 
 import { BrowserRouter, Routes, Route, Link, useLocation } from "react-router-dom";
-import { Puzzle, Brush, Cuboid, BoxSelect, Calculator, Megaphone, Sparkles, Scissors, ArrowRightLeft, QrCode, Palette, Gamepad2, Baseline, Waves, UserCircle2, Box, Flower, Settings2, CircleDot, WrapText, Nut } from "lucide-react";
+import { Puzzle, Brush, Cuboid, BoxSelect, Calculator, Megaphone, Sparkles, Scissors, ArrowRightLeft, QrCode, Palette, Gamepad2, Baseline, Waves, UserCircle2, Box, Flower, Settings2, CircleDot, WrapText, Nut, Paperclip, KeyRound } from "lucide-react";
 import FilamentPainter from "./pages/FilamentPainter";
 import AiFigures from "./pages/AiFigures";
 import Viewer3D from "./pages/Viewer3D";
@@ -17,6 +17,9 @@ import SvgConverter from "./pages/SvgConverter";
 import QrGenerator from "./pages/QrGenerator";
 import DesignEditor from "./pages/DesignEditor";
 import FidgetClickerMaker from "./pages/FidgetClickerMaker";
+import ClipMaker from "./pages/ClipMaker";
+import LowPolyMaker from "./pages/LowPolyMaker";
+import KeychainMaker from "./pages/KeychainMaker";
 
 import NameSignGenerator from "./pages/NameSignGenerator";
 import FlexiModelCreator from "./pages/FlexiModelCreator";
@@ -81,6 +84,9 @@ function Layout({ children }: { children: React.ReactNode }) {
             <NavItem to="/flexi-creator" icon={Waves} label="Criador Flexi" description="Modelos Articulados" />
             <NavItem to="/name-sign" icon={Baseline} label="Gerador de Placas" description="Placas e Letreiros" />
             <NavItem to="/fidget-clicker" icon={Gamepad2} label="Clicker Maker" description="Fidget Chaveiro 3D" />
+            <NavItem to="/keychain-maker" icon={KeyRound} label="Keychain Maker" description="Chaveiros 3D Multicor" />
+            <NavItem to="/clip-maker" icon={Paperclip} label="Clip Maker" description="Clips Decorativos 3D" />
+            <NavItem to="/low-poly-maker" icon={Box} label="Low Poly 3D" description="Modelos Multifacetados" />
             
             <div className="px-6 py-3 mt-4 text-[9px] font-black tracking-widest text-zinc-500/80 uppercase">Engineering</div>
             <NavItem to="/gear-generator" icon={Settings2} label="Gear Generator" description="BOSL2 Parametric Gears" />
@@ -131,6 +137,9 @@ export default function App() {
           <Route path="/flexi-creator" element={<FlexiModelCreator />} />
           <Route path="/name-sign" element={<NameSignGenerator />} />
           <Route path="/fidget-clicker" element={<FidgetClickerMaker />} />
+          <Route path="/keychain-maker" element={<KeychainMaker />} />
+          <Route path="/clip-maker" element={<ClipMaker />} />
+          <Route path="/low-poly-maker" element={<LowPolyMaker />} />
           <Route path="/design-editor" element={<DesignEditor />} />
           <Route path="/qr-generator" element={<QrGenerator />} />
           <Route path="/svg-converter" element={<SvgConverter />} />
